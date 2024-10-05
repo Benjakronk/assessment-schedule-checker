@@ -1,20 +1,31 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="no">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vurderingsplan</title>
+    <title>Vurderingskalender for Runni ungdomsskole</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div class="container">
-        <h1>Oversikt over kommende vurderinger</h1>
+        <h1>Vurderingskalender for Runni ungdomsskole</h1>
         <div class="search-container">
-            <input type="text" id="classSearch" placeholder="Søk etter klasse (f. eks. 8A)...">
+            <input type="text" id="classSearch" placeholder="Søk etter klasse...">
             <button onclick="searchSchedule()">Søk</button>
         </div>
-        <div id="scheduleContainer">
-            <!-- Schedule will be populated here after search -->
+        <div class="date-filter">
+            <label for="startDate">Fra:</label>
+            <input type="date" id="startDate">
+            <label for="endDate">Til:</label>
+            <input type="date" id="endDate">
+            <button onclick="filterDates()">Filtrer</button>
+        </div>
+        <div id="calendar"></div>
+        <div id="popup" class="popup">
+            <div class="popup-content">
+                <span class="close">&times;</span>
+                <div id="popupContent"></div>
+            </div>
         </div>
         <p id="lastUpdated"></p>
     </div>
