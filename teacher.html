@@ -8,7 +8,7 @@
 </head>
 <body>
 
-  <!-- Loading overlay -->
+  <!-- Loading overlay — always in DOM -->
   <div id="overlay" class="overlay" role="status" aria-live="polite">
     <div class="overlay-inner">
       <div class="spinner"></div>
@@ -16,10 +16,8 @@
     </div>
   </div>
 
-  <!-- Edit modal backdrop -->
+  <!-- Edit modal — always in DOM (needed once logged in) -->
   <div id="modalOverlay" class="modal-overlay" aria-hidden="true"></div>
-
-  <!-- Add / Edit modal -->
   <div id="modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="modal-header">
       <h2 id="modalTitle" class="modal-title">Legg til vurdering</h2>
@@ -58,7 +56,7 @@
     </form>
   </div>
 
-  <!-- Confirm / Alert dialog -->
+  <!-- Confirm / Alert dialog — always in DOM -->
   <div id="confirmOverlay" class="confirm-overlay"></div>
   <div id="confirmDialog" class="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirmMessage">
     <p id="confirmMessage" class="confirm-message"></p>
@@ -68,16 +66,7 @@
     </div>
   </div>
 
-  <!-- Teacher day panel (calendar view) -->
-  <div id="teacherPanelOverlay" class="panel-overlay" aria-hidden="true"></div>
-  <aside id="teacherPanel" class="detail-panel" aria-label="Dagdetaljer">
-    <button id="teacherPanelClose" class="panel-close" aria-label="Lukk">&times;</button>
-    <h2 id="teacherPanelTitle" class="panel-title"></h2>
-    <button id="teacherPanelAdd" class="btn btn-primary panel-add-btn">+ Legg til for denne datoen</button>
-    <div id="teacherPanelBody" class="panel-body"></div>
-  </aside>
-
-  <!-- ── Login view ── -->
+  <!-- Login view — always in DOM -->
   <div id="loginView" class="login-page">
     <div class="login-card">
       <h1 class="login-title">Vurderingskalender</h1>
@@ -94,95 +83,113 @@
     </div>
   </div>
 
-  <!-- ── Dashboard ── -->
-  <div id="dashboard" class="page" hidden>
-    <header class="site-header">
-      <div class="header-left">
-        <h1 class="site-title">Vurderingskalender</h1>
-        <p class="site-subtitle">Runni ungdomsskole</p>
-      </div>
-      <div class="header-right">
-        <button id="refreshBtn" class="btn btn-ghost" title="Hent ferske data fra server">&#8635; Oppdater</button>
-        <button id="logoutBtn" class="btn btn-ghost">Logg ut</button>
-      </div>
-    </header>
+  <!--
+    Dashboard template — contents are NOT rendered and NOT accessible in the DOM
+    until explicitly cloned in by teacher.js after successful login.
+    Logging out removes the cloned elements entirely.
+  -->
+  <template id="dashboardTemplate">
 
-    <main class="main">
-      <div class="toolbar">
-        <button id="addBtn" class="btn btn-primary">+ Legg til vurdering</button>
-        <div class="view-toggle-group" role="group" aria-label="Visningsvalg">
-          <button id="viewTable" class="view-toggle-btn active">Tabell</button>
-          <button id="viewCalendar" class="view-toggle-btn">Kalender</button>
+    <!-- Teacher day panel (calendar view) -->
+    <div id="teacherPanelOverlay" class="panel-overlay" aria-hidden="true"></div>
+    <aside id="teacherPanel" class="detail-panel" aria-label="Dagdetaljer">
+      <button id="teacherPanelClose" class="panel-close" aria-label="Lukk">&times;</button>
+      <h2 id="teacherPanelTitle" class="panel-title"></h2>
+      <button id="teacherPanelAdd" class="btn btn-primary panel-add-btn">+ Legg til for denne datoen</button>
+      <div id="teacherPanelBody" class="panel-body"></div>
+    </aside>
+
+    <!-- Dashboard -->
+    <div id="dashboard" class="page">
+      <header class="site-header">
+        <div class="header-left">
+          <h1 class="site-title">Vurderingskalender</h1>
+          <p class="site-subtitle">Runni ungdomsskole</p>
         </div>
-        <label class="toggle-label">
-          <input type="checkbox" id="showPastToggle">
-          Vis tidligere
-        </label>
-      </div>
-
-      <div class="filter-bar">
-        <div class="filter-section">
-          <span class="filter-section-label">Dato</span>
-          <label class="date-label">Fra <input type="date" id="filterStart" class="input input-date"></label>
-          <label class="date-label">Til <input type="date" id="filterEnd" class="input input-date"></label>
+        <div class="header-right">
+          <button id="refreshBtn" class="btn btn-ghost" title="Hent ferske data fra server">&#8635; Oppdater</button>
+          <button id="logoutBtn" class="btn btn-ghost">Logg ut</button>
         </div>
-        <div class="filter-section filter-section-classes">
-          <span class="filter-section-label">Klasse</span>
-          <div id="filterClassBtns" class="filter-class-btns"></div>
+      </header>
+
+      <main class="main">
+        <div class="toolbar">
+          <button id="addBtn" class="btn btn-primary">+ Legg til vurdering</button>
+          <div class="view-toggle-group" role="group" aria-label="Visningsvalg">
+            <button id="viewTable" class="view-toggle-btn active">Tabell</button>
+            <button id="viewCalendar" class="view-toggle-btn">Kalender</button>
+          </div>
+          <label class="toggle-label">
+            <input type="checkbox" id="showPastToggle">
+            Vis tidligere
+          </label>
         </div>
-      </div>
 
-      <!-- Table view -->
-      <div id="tableView">
-        <div class="table-wrap">
-          <table id="dataTable" class="data-table">
-            <colgroup>
-              <col style="width:100px">  <!-- Dato -->
-              <col style="width:150px">  <!-- Klasse(r) -->
-              <col style="width:150px">  <!-- Fag -->
-              <col>                      <!-- Beskrivelse takes remaining space -->
-              <col style="width:130px">  <!-- Lærer -->
-              <col style="width:140px">  <!-- Actions -->
-            </colgroup>
-            <thead>
-              <tr>
-                <th>Dato</th>
-                <th>Klasse(r)</th>
-                <th>Fag</th>
-                <th>Beskrivelse</th>
-                <th>Lærer</th>
-                <th class="action-th"></th>
-              </tr>
-              <tr class="col-filters-row">
-                <th><input type="text" id="cfDate"    class="col-filter" placeholder="Søk dato…"    autocomplete="off"></th>
-                <th><input type="text" id="cfClass"   class="col-filter" placeholder="Søk klasse…"  autocomplete="off"></th>
-                <th><input type="text" id="cfSubject" class="col-filter" placeholder="Søk fag…"     autocomplete="off"></th>
-                <th><input type="text" id="cfDesc"    class="col-filter" placeholder="Søk…"         autocomplete="off"></th>
-                <th><input type="text" id="cfTeacher" class="col-filter" placeholder="Søk lærer…"   autocomplete="off"></th>
-                <th>
-                  <select id="cfLegacy" class="col-filter">
-                    <option value="all">Alle</option>
-                    <option value="new">Nye</option>
-                    <option value="legacy">Eldre</option>
-                  </select>
-                </th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+        <div class="filter-bar">
+          <div class="filter-section">
+            <span class="filter-section-label">Dato</span>
+            <label class="date-label">Fra <input type="date" id="filterStart" class="input input-date"></label>
+            <label class="date-label">Til <input type="date" id="filterEnd" class="input input-date"></label>
+          </div>
+          <div class="filter-section filter-section-classes">
+            <span class="filter-section-label">Klasse</span>
+            <div id="filterClassBtns" class="filter-class-btns"></div>
+          </div>
         </div>
-      </div>
 
-      <!-- Calendar view -->
-      <div id="calendarView" hidden>
-        <div id="teacherCalendar" class="calendar"></div>
-      </div>
-    </main>
+        <!-- Table view -->
+        <div id="tableView">
+          <div class="table-wrap">
+            <table id="dataTable" class="data-table">
+              <colgroup>
+                <col style="width:100px">  <!-- Dato -->
+                <col style="width:150px">  <!-- Klasse(r) -->
+                <col style="width:150px">  <!-- Fag -->
+                <col>                      <!-- Beskrivelse takes remaining space -->
+                <col style="width:130px">  <!-- Lærer -->
+                <col style="width:140px">  <!-- Actions -->
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Dato</th>
+                  <th>Klasse(r)</th>
+                  <th>Fag</th>
+                  <th>Beskrivelse</th>
+                  <th>Lærer</th>
+                  <th class="action-th"></th>
+                </tr>
+                <tr class="col-filters-row">
+                  <th><input type="text" id="cfDate"    class="col-filter" placeholder="Søk dato…"    autocomplete="off"></th>
+                  <th><input type="text" id="cfClass"   class="col-filter" placeholder="Søk klasse…"  autocomplete="off"></th>
+                  <th><input type="text" id="cfSubject" class="col-filter" placeholder="Søk fag…"     autocomplete="off"></th>
+                  <th><input type="text" id="cfDesc"    class="col-filter" placeholder="Søk…"         autocomplete="off"></th>
+                  <th><input type="text" id="cfTeacher" class="col-filter" placeholder="Søk lærer…"   autocomplete="off"></th>
+                  <th>
+                    <select id="cfLegacy" class="col-filter">
+                      <option value="all">Alle</option>
+                      <option value="new">Nye</option>
+                      <option value="legacy">Eldre</option>
+                    </select>
+                  </th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
 
-    <footer class="site-footer">
-      <p id="lastUpdated" class="last-updated"></p>
-    </footer>
-  </div>
+        <!-- Calendar view -->
+        <div id="calendarView" hidden>
+          <div id="teacherCalendar" class="calendar"></div>
+        </div>
+      </main>
+
+      <footer class="site-footer">
+        <p id="lastUpdated" class="last-updated"></p>
+      </footer>
+    </div>
+
+  </template>
 
   <script src="teacher.js"></script>
 </body>

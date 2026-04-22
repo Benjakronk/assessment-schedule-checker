@@ -35,11 +35,8 @@ window.addEventListener('DOMContentLoaded', init);
 
 function init() {
   setupLoginListeners();
-  setupDashboardListeners();
   setupModalListeners();
   setupConfirmListeners();
-
-  setupFilterClassBtns();
 
   if (sessionStorage.getItem('vk_token')) {
     showDashboard();
@@ -47,6 +44,14 @@ function init() {
   } else {
     showLogin();
   }
+}
+
+function injectDashboard() {
+  if (document.getElementById('dashboard')) return; // already in DOM
+  const template = document.getElementById('dashboardTemplate');
+  document.body.appendChild(template.content.cloneNode(true));
+  setupDashboardListeners();
+  setupFilterClassBtns();
 }
 
 function setupLoginListeners() {
@@ -143,8 +148,13 @@ function handleLogout() {
 // ─── Views ────────────────────────────────────────────────────
 
 function showLogin() {
+  // Remove all logged-in elements from the DOM entirely
+  ['dashboard', 'teacherPanel', 'teacherPanelOverlay'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+  });
+  teacherData = [];
   document.getElementById('loginView').hidden = false;
-  document.getElementById('dashboard').hidden = true;
   document.getElementById('passwordInput').value = '';
   document.getElementById('loginError').textContent = '';
   document.getElementById('wrongPasswordImg').hidden = true;
@@ -152,7 +162,7 @@ function showLogin() {
 
 function showDashboard() {
   document.getElementById('loginView').hidden = true;
-  document.getElementById('dashboard').hidden = false;
+  injectDashboard();
 }
 
 // ─── Data loading ──────────────────────────────────────────────
@@ -547,8 +557,8 @@ function openTeacherPanel(date, entries) {
 }
 
 function closeTeacherPanel() {
-  document.getElementById('teacherPanelOverlay').classList.remove('open');
-  document.getElementById('teacherPanel').classList.remove('open');
+  document.getElementById('teacherPanelOverlay')?.classList.remove('open');
+  document.getElementById('teacherPanel')?.classList.remove('open');
   panelOpenDate = null;
 }
 
