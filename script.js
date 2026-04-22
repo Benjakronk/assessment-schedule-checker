@@ -96,6 +96,7 @@ function applyRememberedClass() {
 
 function showClassModal() {
   const saved = localStorage.getItem(CLASS_KEY);
+  if (saved) return; // class already chosen on a previous visit — apply silently, skip modal
   const grid  = document.getElementById('classModalGrid');
   grid.innerHTML = '';
 
