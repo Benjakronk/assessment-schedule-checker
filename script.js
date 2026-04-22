@@ -1,230 +1,348 @@
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzegX7VaxewvdXyuy8d-VPCyDFhTbkQY0U61XFYubi_QPUmZ4KmgnRBO0bk57tLWtu8/exec';
+'use strict';
 
-let scheduleData = [];
-let filteredData = [];
+// Update this to the new Apps Script deployment URL after deploying new_GAS.js
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwsXqoLZW8RlIAwvGN1yQXgpLnB3aCbVtjrmt4X5v302Fpbd9XFsSiobBOOTC4z1q5n/exec';
 
-// Thematic colors for months
-const monthColors = {
-    0: "#8ecae6",  // January - Winter blue
-    1: "#a8dadc",  // February - Light blue
-    2: "#b5e48c",  // March - Spring green
-    3: "#d9ed92",  // April - Light green
-    4: "#99d98c",  // May - Fresh green
-    5: "#ffd166",  // June - Summer yellow
-    6: "#f9c74f",  // July - Warm yellow
-    7: "#f9844a",  // August - Orange
-    8: "#f3722c",  // September - Dark orange
-    9: "#f8961e",  // October - Autumn orange
-    10: "#577590", // November - Deep blue
-    11: "#4d908e"  // December - Teal
-};
+const CACHE_KEY    = 'vk_data';
+const CACHE_TS_KEY = 'vk_data_ts';
+const CACHE_TTL    = 60 * 60 * 1000; // 1 hour
 
-async function fetchSchedule() {
-    try {
-        const response = await fetch(SCRIPT_URL);
-        scheduleData = await response.json();
-        updateLastUpdated();
-        initializeDateFilters();
-    } catch (error) {
-        console.error('Feil ved henting av timeplan:', error);
-        document.getElementById('calendar').innerHTML = '<p>Feil ved lasting av timeplan. Vennligst prøv igjen senere.</p>';
-    }
+let allData    = [];
+let searchTerm = '';
+
+// ─── Lifecycle ────────────────────────────────────────────────
+
+window.addEventListener('DOMContentLoaded', init);
+
+async function init() {
+  setupListeners();
+  setDefaultDates();
+
+  const cached = getCachedData();
+  if (cached) {
+    allData = cached;
+    updateStatus();
+    render();
+    hideOverlay();
+  } else {
+    await fetchAndCache();
+  }
 }
 
-function initializeDateFilters() {
-    const today = new Date();
-    const oneMonthLater = new Date(today.getFullYear(), today.getMonth() + 1, today.getDate());
-    
-    document.getElementById('startDate').valueAsDate = today;
-    document.getElementById('endDate').valueAsDate = oneMonthLater;
+function setupListeners() {
+  document.getElementById('classSearch').addEventListener('input', debounce(onSearchChange, 300));
+  document.getElementById('startDate').addEventListener('change', render);
+  document.getElementById('endDate').addEventListener('change', render);
+  document.getElementById('refreshBtn').addEventListener('click', () => fetchAndCache(true));
+  document.getElementById('panelClose').addEventListener('click', closePanel);
+  document.getElementById('panelOverlay').addEventListener('click', closePanel);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closePanel(); });
 }
 
-function searchSchedule() {
-    const searchTerm = document.getElementById('classSearch').value.trim().toUpperCase();
-    if (searchTerm === '') {
-        alert('Vennligst skriv inn en klasse å søke etter.');
-        return;
-    }
-    filteredData = scheduleData.filter(item => 
-        item.classes.toUpperCase().includes(searchTerm)
-    );
-    updateSearchResultDisplay(searchTerm);
-    filterDates();
+function setDefaultDates() {
+  const today         = new Date();
+  const twoMonthsOut  = new Date(today.getFullYear(), today.getMonth() + 2, today.getDate());
+  document.getElementById('startDate').valueAsDate = today;
+  document.getElementById('endDate').valueAsDate   = twoMonthsOut;
 }
 
-function updateSearchResultDisplay(searchTerm) {
-    let resultDisplay = document.getElementById('searchResultDisplay');
-    if (!resultDisplay) {
-        resultDisplay = document.createElement('h2');
-        resultDisplay.id = 'searchResultDisplay';
-        resultDisplay.style.cssText = `
-            text-align: center;
-            margin-bottom: 10px;
-        `;
-        const calendarElement = document.getElementById('calendar');
-        calendarElement.insertBefore(resultDisplay, calendarElement.firstChild);
-    }
-    resultDisplay.textContent = `Viser resultater for ${searchTerm}`;
+// ─── Data fetching ────────────────────────────────────────────
+
+async function fetchAndCache(force = false) {
+  showOverlay();
+  try {
+    const res = await fetch(`${SCRIPT_URL}?action=public`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!Array.isArray(data)) throw new Error('Ugyldig svar fra server');
+    allData = data;
+    setCachedData(allData);
+    updateStatus();
+    render();
+    hideOverlay();
+  } catch (err) {
+    showOverlayError('Kunne ikke laste data. Sjekk tilkoblingen og prøv igjen.');
+  }
 }
 
-function filterDates() {
-    const startDate = new Date(document.getElementById('startDate').value);
-    const endDate = new Date(document.getElementById('endDate').value);
-    endDate.setHours(23, 59, 59); // Set to end of day
+// ─── Rendering ────────────────────────────────────────────────
 
-    const dateFilteredData = filteredData.filter(item => {
-        const itemDate = new Date(item.date);
-        return itemDate >= startDate && itemDate <= endDate;
-    });
-
-    displayCalendar(dateFilteredData, startDate, endDate);
+function onSearchChange() {
+  searchTerm = document.getElementById('classSearch').value.trim().toUpperCase();
+  render();
 }
 
-function displayCalendar(data, startDate, endDate) {
-    let calendarContainer = document.getElementById('calendarContainer');
-    if (!calendarContainer) {
-        calendarContainer = document.createElement('div');
-        calendarContainer.id = 'calendarContainer';
-        calendarContainer.style.cssText = `
-            max-height: 600px;
-            overflow-y: auto;
-            border: 1px solid #ccc;
-            padding: 10px;
-            margin: 0 auto;
-            width: 90%;
-            max-width: 800px;
-        `;
-        document.getElementById('calendar').appendChild(calendarContainer);
-    }
-    calendarContainer.innerHTML = '';
+function render() {
+  const startInput = document.getElementById('startDate').value;
+  const endInput   = document.getElementById('endDate').value;
+  if (!startInput || !endInput) return;
 
-    let currentDate = new Date(startDate);
-    currentDate.setDate(1); // Start from the first day of the month
+  const startDate = new Date(startInput);
+  const endDate   = new Date(endInput);
+  endDate.setHours(23, 59, 59);
 
-    while (currentDate <= endDate) {
-        const monthTable = createMonthTable(currentDate, data);
-        calendarContainer.appendChild(monthTable);
-        currentDate.setMonth(currentDate.getMonth() + 1);
-    }
+  const filtered = allData.filter(item => {
+    const d = new Date(item.date);
+    if (d < startDate || d > endDate) return false;
+    if (searchTerm && !item.classes.toUpperCase().includes(searchTerm)) return false;
+    return true;
+  });
+
+  renderCalendar(filtered, startDate, endDate);
 }
 
-function createMonthTable(date, data) {
-    const monthContainer = document.createElement('div');
-    monthContainer.className = 'month-container';
-    monthContainer.style.backgroundColor = monthColors[date.getMonth()];
+function renderCalendar(data, startDate, endDate) {
+  const container = document.getElementById('calendar');
+  container.innerHTML = '';
 
-    const monthHeader = document.createElement('h2');
-    monthHeader.textContent = capitalizeFirstLetter(date.toLocaleString('no', { month: 'long', year: 'numeric' }));
-    monthHeader.style.textAlign = 'center';
-    monthContainer.appendChild(monthHeader);
+  if (data.length === 0 && searchTerm) {
+    container.innerHTML = '<p class="empty-state">Ingen vurderinger funnet for denne klassen i valgt periode.</p>';
+    return;
+  }
 
-    const table = document.createElement('table');
-    table.className = 'month-table';
-    table.style.width = '100%';
+  // Build date → assessments[] lookup
+  const byDate = {};
+  data.forEach(item => {
+    if (!byDate[item.date]) byDate[item.date] = [];
+    byDate[item.date].push(item);
+  });
 
-    // Create header row
-    const headerRow = table.insertRow();
-    headerRow.innerHTML = '<th>Uke</th><th>Man</th><th>Tir</th><th>Ons</th><th>Tor</th><th>Fre</th><th>Lør</th><th>Søn</th>';
+  // Iterate month by month
+  let cursor    = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+  const endMonth = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
 
-    let currentDate = new Date(date.getFullYear(), date.getMonth(), 1);
-    let startingDayOfWeek = currentDate.getDay() || 7; // Convert Sunday (0) to 7
-    currentDate.setDate(currentDate.getDate() - startingDayOfWeek + 1); // Start from Monday of the first week
+  while (cursor <= endMonth) {
+    container.appendChild(buildMonthCard(cursor, byDate));
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+  }
+}
 
-    const lastDayOfMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-    const weeksToRender = Math.ceil((lastDayOfMonth + startingDayOfWeek - 1) / 7);
+function buildMonthCard(monthDate, byDate) {
+  const year  = monthDate.getFullYear();
+  const month = monthDate.getMonth();
 
-    for (let week = 0; week < weeksToRender; week++) {
-        const row = table.insertRow();
-        const weekCell = row.insertCell();
-        weekCell.textContent = getWeekNumber(currentDate);
-        weekCell.className = 'week-number';
+  const card = document.createElement('section');
+  card.className = 'month-card';
 
-        for (let day = 0; day < 7; day++) {
-            const cell = row.insertCell();
-            cell.textContent = currentDate.getDate();
+  const title = document.createElement('h2');
+  title.className = 'month-title';
+  title.textContent = capitalizeFirst(
+    monthDate.toLocaleString('no', { month: 'long', year: 'numeric' })
+  );
+  card.appendChild(title);
 
-            if (currentDate.getMonth() === date.getMonth()) {
-                cell.className = 'current-month';
-                const cellDate = new Date(currentDate.getTime());
-                const assessments = data.filter(item => {
-                    const itemDate = new Date(item.date);
-                    return itemDate.toDateString() === cellDate.toDateString();
-                });
+  const table = document.createElement('table');
+  table.className = 'cal-table';
 
-                if (assessments.length > 0) {
-                    cell.classList.add('has-assessments');
-                    cell.addEventListener('click', () => showAssessmentDetails(assessments, cellDate));
-                }
-            } else {
-                cell.className = 'other-month';
-            }
+  // Header row
+  const thead = table.createTHead();
+  const headerRow = thead.insertRow();
+  ['Uke', 'Man', 'Tir', 'Ons', 'Tor', 'Fre', 'Lør', 'Søn'].forEach(label => {
+    const th = document.createElement('th');
+    th.textContent = label;
+    headerRow.appendChild(th);
+  });
 
-            currentDate.setDate(currentDate.getDate() + 1);
+  // Body rows
+  const tbody = table.createTBody();
+  const today = toISODate(new Date());
+
+  // Start from Monday of the week containing the 1st
+  let cursor = new Date(year, month, 1);
+  const startDow = cursor.getDay() || 7; // Mon=1 … Sun=7
+  cursor.setDate(cursor.getDate() - startDow + 1);
+
+  const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
+  const weeks = Math.ceil((lastDayOfMonth + startDow - 1) / 7);
+
+  for (let w = 0; w < weeks; w++) {
+    const tr = tbody.insertRow();
+
+    const weekTd = document.createElement('td');
+    weekTd.className = 'week-num';
+    weekTd.textContent = getWeekNumber(cursor);
+    tr.appendChild(weekTd);
+
+    for (let d = 0; d < 7; d++) {
+      const td = document.createElement('td');
+
+      if (cursor.getMonth() === month) {
+        const dateKey     = toISODate(cursor);
+        const assessments = byDate[dateKey] || [];
+
+        td.className = 'day';
+        if (dateKey === today) td.classList.add('today');
+
+        const num = document.createElement('span');
+        num.className = 'day-num';
+        num.textContent = cursor.getDate();
+        td.appendChild(num);
+
+        if (assessments.length > 0) {
+          td.classList.add('has-assessments');
+
+          const dotsWrap = document.createElement('span');
+          dotsWrap.className = 'dots';
+          const dotCount = Math.min(assessments.length, 4);
+          for (let i = 0; i < dotCount; i++) {
+            const dot = document.createElement('span');
+            dot.className = 'dot';
+            dotsWrap.appendChild(dot);
+          }
+          td.appendChild(dotsWrap);
+
+          // Snapshot loop variables for the click handler
+          const snapDate = new Date(cursor);
+          const snapItems = assessments.slice();
+          td.addEventListener('click', () => openPanel(snapDate, snapItems));
         }
-    }
+      } else {
+        td.className = 'day other-month';
+        td.textContent = cursor.getDate();
+      }
 
-    monthContainer.appendChild(table);
-    return monthContainer;
+      tr.appendChild(td);
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  }
+
+  card.appendChild(table);
+  return card;
 }
 
-function showAssessmentDetails(assessments, date) {
-    const popup = document.getElementById('popup');
-    const popupContent = document.getElementById('popupContent');
-    
-    popupContent.innerHTML = `<h2>Vurderinger for ${formatDateDetailed(date)}</h2>`;
+// ─── Detail panel ─────────────────────────────────────────────
 
-    const table = document.createElement('table');
-    table.innerHTML = `
-        <tr>
-            <th>Fag</th>
-            <th>Beskrivelse</th>
-        </tr>
-    `;
+function openPanel(date, assessments) {
+  document.getElementById('panelTitle').textContent = formatDateLong(date);
 
-    assessments.forEach(item => {
-        const row = table.insertRow();
-        row.innerHTML = `
-            <td>${item.subject}</td>
-            <td>${item.notes}</td>
-        `;
-    });
+  const body = document.getElementById('panelBody');
+  body.innerHTML = '';
 
-    popupContent.appendChild(table);
-    popup.style.display = 'block';
+  assessments.forEach(a => {
+    const card = document.createElement('div');
+    card.className = 'assessment-card';
 
-    const closeButton = document.getElementsByClassName('close')[0];
-    closeButton.onclick = function() {
-        popup.style.display = 'none';
+    const subject = document.createElement('div');
+    subject.className = 'ac-subject';
+    subject.textContent = a.subject;
+
+    const classes = document.createElement('div');
+    classes.className = 'ac-classes';
+    classes.textContent = a.classes;
+
+    card.appendChild(subject);
+    card.appendChild(classes);
+
+    if (a.description || a.notes) {
+      const desc = document.createElement('div');
+      desc.className = 'ac-desc';
+      desc.textContent = a.description || a.notes;
+      card.appendChild(desc);
     }
 
-    window.onclick = function(event) {
-        if (event.target == popup) {
-            popup.style.display = 'none';
-        }
+    if (a.teacher) {
+      const teacher = document.createElement('div');
+      teacher.className = 'ac-teacher';
+      teacher.textContent = a.teacher;
+      card.appendChild(teacher);
     }
+
+    body.appendChild(card);
+  });
+
+  document.getElementById('panelOverlay').classList.add('open');
+  document.getElementById('detailPanel').classList.add('open');
 }
 
-function formatDateDetailed(date) {
-    const days = ['Søndag', 'Mandag', 'Tirsdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lørdag'];
-    const dayName = days[date.getDay()];
-    const weekNumber = getWeekNumber(date);
-    return `${dayName} ${date.getDate()}.${date.getMonth() + 1}.${date.getFullYear()} (Uke ${weekNumber})`;
+function closePanel() {
+  document.getElementById('panelOverlay').classList.remove('open');
+  document.getElementById('detailPanel').classList.remove('open');
+}
+
+// ─── Overlay ──────────────────────────────────────────────────
+
+function showOverlay() {
+  const overlay = document.getElementById('overlay');
+  overlay.querySelector('.overlay-text').textContent = 'Laster...';
+  overlay.querySelector('.spinner').style.display = '';
+  const existingBtn = overlay.querySelector('.overlay-retry');
+  if (existingBtn) existingBtn.remove();
+  overlay.classList.add('active');
+}
+
+function hideOverlay() {
+  document.getElementById('overlay').classList.remove('active');
+}
+
+function showOverlayError(msg) {
+  const overlay  = document.getElementById('overlay');
+  const spinner  = overlay.querySelector('.spinner');
+  const textEl   = overlay.querySelector('.overlay-text');
+
+  spinner.style.display = 'none';
+  textEl.textContent = msg;
+
+  if (!overlay.querySelector('.overlay-retry')) {
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-primary overlay-retry';
+    btn.textContent = 'Prøv igjen';
+    btn.addEventListener('click', () => fetchAndCache(true));
+    overlay.querySelector('.overlay-inner').appendChild(btn);
+  }
+
+  overlay.classList.add('active');
+}
+
+// ─── Cache ────────────────────────────────────────────────────
+
+function getCachedData() {
+  const ts = localStorage.getItem(CACHE_TS_KEY);
+  if (!ts || Date.now() - Number(ts) > CACHE_TTL) return null;
+  try {
+    return JSON.parse(localStorage.getItem(CACHE_KEY));
+  } catch {
+    return null;
+  }
+}
+
+function setCachedData(data) {
+  localStorage.setItem(CACHE_KEY,    JSON.stringify(data));
+  localStorage.setItem(CACHE_TS_KEY, String(Date.now()));
+}
+
+function updateStatus() {
+  const ts = localStorage.getItem(CACHE_TS_KEY);
+  if (!ts) return;
+  document.getElementById('lastUpdated').textContent =
+    'Sist oppdatert: ' + new Date(Number(ts)).toLocaleString('no');
+}
+
+// ─── Utilities ────────────────────────────────────────────────
+
+function toISODate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function getWeekNumber(d) {
-    d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-    return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
 }
 
-function updateLastUpdated() {
-    const now = new Date();
-    document.getElementById('lastUpdated').textContent = `Sist oppdatert: ${now.toLocaleString('no')}`;
+function formatDateLong(d) {
+  const days = ['Søndag', 'Mandag', 'Tirsdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lørdag'];
+  return `${days[d.getDay()]} ${d.getDate()}. ${d.toLocaleString('no', { month: 'long' })} ${d.getFullYear()} — uke ${getWeekNumber(d)}`;
 }
 
-function capitalizeFirstLetter(string) {
-    return string.charAt(0).toUpperCase() + string.slice(1);
+function capitalizeFirst(s) {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-window.onload = fetchSchedule;
+function debounce(fn, ms) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}

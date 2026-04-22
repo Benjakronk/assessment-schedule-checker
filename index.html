@@ -1,34 +1,74 @@
 <!DOCTYPE html>
 <html lang="no">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vurderingskalender for Runni ungdomsskole</title>
-    <link rel="stylesheet" href="styles.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vurderingskalender — Runni ungdomsskole</title>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="container">
-        <h1>Vurderingskalender for Runni ungdomsskole</h1>
-        <div class="search-container">
-            <input type="text" id="classSearch" placeholder="Søk etter klasse...">
-            <button onclick="searchSchedule()">Søk</button>
-        </div>
-        <div class="date-filter">
-            <label for="startDate">Fra:</label>
-            <input type="date" id="startDate">
-            <label for="endDate">Til:</label>
-            <input type="date" id="endDate">
-            <button onclick="filterDates()">Filtrer</button>
-        </div>
-        <div id="calendar"></div>
-        <div id="popup" class="popup">
-            <div class="popup-content">
-                <span class="close">&times;</span>
-                <div id="popupContent"></div>
-            </div>
-        </div>
-        <p id="lastUpdated"></p>
+
+  <!-- Loading overlay -->
+  <div id="overlay" class="overlay" role="status" aria-live="polite">
+    <div class="overlay-inner">
+      <div class="spinner"></div>
+      <p class="overlay-text">Laster...</p>
     </div>
-    <script src="script.js"></script>
+  </div>
+
+  <!-- Detail panel backdrop -->
+  <div id="panelOverlay" class="panel-overlay" aria-hidden="true"></div>
+
+  <!-- Day detail panel -->
+  <aside id="detailPanel" class="detail-panel" aria-label="Vurderingsdetaljer">
+    <button id="panelClose" class="panel-close" aria-label="Lukk panel">&times;</button>
+    <h2 id="panelTitle" class="panel-title"></h2>
+    <div id="panelBody" class="panel-body"></div>
+  </aside>
+
+  <div class="page">
+    <header class="site-header">
+      <div class="site-header-inner">
+        <h1 class="site-title">Vurderingskalender</h1>
+        <p class="site-subtitle">Runni ungdomsskole</p>
+      </div>
+    </header>
+
+    <main class="main">
+      <div class="controls">
+        <div class="control-search">
+          <label for="classSearch" class="sr-only">Filtrer klasse</label>
+          <input
+            type="text"
+            id="classSearch"
+            class="input"
+            placeholder="Filtrer klasse (f.eks. 9A)…"
+            autocomplete="off"
+          >
+        </div>
+        <div class="control-dates">
+          <label class="date-label">
+            Fra
+            <input type="date" id="startDate" class="input input-date">
+          </label>
+          <label class="date-label">
+            Til
+            <input type="date" id="endDate" class="input input-date">
+          </label>
+        </div>
+        <button id="refreshBtn" class="btn btn-ghost" title="Tving ny henting fra server">
+          &#8635; Oppdater
+        </button>
+      </div>
+
+      <div id="calendar" class="calendar"></div>
+    </main>
+
+    <footer class="site-footer">
+      <p id="lastUpdated" class="last-updated"></p>
+    </footer>
+  </div>
+
+  <script src="script.js"></script>
 </body>
 </html>

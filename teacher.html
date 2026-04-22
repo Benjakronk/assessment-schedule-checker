@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vurderingskalender — Lærere</title>
+  <link rel="stylesheet" href="teacher.css">
+</head>
+<body>
+
+  <!-- Loading overlay -->
+  <div id="overlay" class="overlay" role="status" aria-live="polite">
+    <div class="overlay-inner">
+      <div class="spinner"></div>
+      <p class="overlay-text">Laster...</p>
+    </div>
+  </div>
+
+  <!-- Modal backdrop -->
+  <div id="modalOverlay" class="modal-overlay" aria-hidden="true"></div>
+
+  <!-- Add / Edit modal -->
+  <div id="modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-header">
+      <h2 id="modalTitle" class="modal-title">Legg til vurdering</h2>
+      <button id="modalClose" class="icon-btn" aria-label="Lukk">&times;</button>
+    </div>
+
+    <form id="modalForm" class="modal-body" novalidate>
+      <div class="field">
+        <label for="modalDate" class="field-label">Dato <span class="required">*</span></label>
+        <input type="date" id="modalDate" class="input" required>
+      </div>
+
+      <div class="field">
+        <span class="field-label">Klasse(r) <span class="required">*</span></span>
+        <div id="classToggles" class="class-grid"></div>
+      </div>
+
+      <div class="field">
+        <label for="modalSubject" class="field-label">Fag <span class="required">*</span></label>
+        <input type="text" id="modalSubject" class="input" placeholder="f.eks. Matematikk" required>
+      </div>
+
+      <div class="field">
+        <label for="modalDescription" class="field-label">Beskrivelse</label>
+        <textarea id="modalDescription" class="input input-textarea" placeholder="f.eks. Kapittelprøve kap. 4-6" rows="3"></textarea>
+      </div>
+
+      <div class="field">
+        <label for="modalTeacher" class="field-label">Lærer</label>
+        <input type="text" id="modalTeacher" class="input" placeholder="Ditt navn">
+      </div>
+
+      <!-- Conflict panel -->
+      <div id="conflictPanel" class="conflict-panel" hidden>
+        <p class="conflict-heading">Vurderinger i nærheten (±3 dager)</p>
+        <div id="conflictList" class="conflict-list"></div>
+      </div>
+
+      <p id="modalError" class="form-error" aria-live="polite"></p>
+
+      <div class="modal-actions">
+        <button type="button" id="modalCancel" class="btn btn-ghost">Avbryt</button>
+        <button type="submit" id="saveBtn" class="btn btn-primary">Lagre</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- ── Login view ── -->
+  <div id="loginView" class="login-page">
+    <div class="login-card">
+      <h1 class="login-title">Vurderingskalender</h1>
+      <p class="login-subtitle">Runni ungdomsskole — Lærere</p>
+      <form id="loginForm" novalidate>
+        <div class="field">
+          <label for="passwordInput" class="field-label">Passord</label>
+          <input type="password" id="passwordInput" class="input" autocomplete="current-password" required>
+        </div>
+        <p id="loginError" class="form-error" aria-live="polite"></p>
+        <button type="submit" id="loginBtn" class="btn btn-primary btn-full">Logg inn</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── Dashboard ── -->
+  <div id="dashboard" class="page" hidden>
+    <header class="site-header">
+      <div class="header-left">
+        <h1 class="site-title">Vurderingskalender</h1>
+        <p class="site-subtitle">Lærere — Runni ungdomsskole</p>
+      </div>
+      <div class="header-right">
+        <button id="refreshBtn" class="btn btn-ghost" title="Hent ferske data fra server">&#8635; Oppdater</button>
+        <button id="logoutBtn" class="btn btn-ghost">Logg ut</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <div class="toolbar">
+        <button id="addBtn" class="btn btn-primary">+ Legg til vurdering</button>
+        <label class="toggle-label">
+          <input type="checkbox" id="showPastToggle">
+          Vis tidligere vurderinger
+        </label>
+      </div>
+
+      <div class="table-wrap">
+        <table id="dataTable" class="data-table">
+          <thead>
+            <tr>
+              <th>Dato</th>
+              <th>Klasse(r)</th>
+              <th>Fag</th>
+              <th>Beskrivelse</th>
+              <th>Lærer</th>
+              <th class="action-th"></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <p id="lastUpdated" class="last-updated"></p>
+    </footer>
+  </div>
+
+  <script src="teacher.js"></script>
+</body>
+</html>
