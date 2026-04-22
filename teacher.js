@@ -123,6 +123,7 @@ async function loadData(force = false) {
       teacherData = cached;
       renderTable();
       updateStatus();
+      hideOverlay();
       return;
     }
   }
