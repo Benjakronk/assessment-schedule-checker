@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Vurderingskalender — Lærere</title>
+  <title>Runni ungdomsskole: Vurderingskalender</title>
   <link rel="stylesheet" href="teacher.css">
 </head>
 <body>
@@ -16,7 +16,7 @@
     </div>
   </div>
 
-  <!-- Modal backdrop -->
+  <!-- Edit modal backdrop -->
   <div id="modalOverlay" class="modal-overlay" aria-hidden="true"></div>
 
   <!-- Add / Edit modal -->
@@ -25,41 +25,32 @@
       <h2 id="modalTitle" class="modal-title">Legg til vurdering</h2>
       <button id="modalClose" class="icon-btn" aria-label="Lukk">&times;</button>
     </div>
-
     <form id="modalForm" class="modal-body" novalidate>
       <div class="field">
         <label for="modalDate" class="field-label">Dato <span class="required">*</span></label>
         <input type="date" id="modalDate" class="input" required>
       </div>
-
       <div class="field">
         <span class="field-label">Klasse(r) <span class="required">*</span></span>
         <div id="classToggles" class="class-grid"></div>
       </div>
-
       <div class="field">
         <label for="modalSubject" class="field-label">Fag <span class="required">*</span></label>
         <input type="text" id="modalSubject" class="input" placeholder="f.eks. Matematikk" required>
       </div>
-
       <div class="field">
-        <label for="modalDescription" class="field-label">Beskrivelse</label>
-        <textarea id="modalDescription" class="input input-textarea" placeholder="f.eks. Kapittelprøve kap. 4-6" rows="3"></textarea>
+        <label for="modalDescription" class="field-label">Beskrivelse <span class="required">*</span></label>
+        <textarea id="modalDescription" class="input input-textarea" placeholder="f.eks. Kapittelprøve kap. 4-6" rows="3" required></textarea>
       </div>
-
       <div class="field">
-        <label for="modalTeacher" class="field-label">Lærer</label>
-        <input type="text" id="modalTeacher" class="input" placeholder="Ditt navn">
+        <label for="modalTeacher" class="field-label">Lærer <span class="required">*</span></label>
+        <input type="text" id="modalTeacher" class="input" placeholder="Ditt navn" required>
       </div>
-
-      <!-- Conflict panel -->
       <div id="conflictPanel" class="conflict-panel" hidden>
-        <p class="conflict-heading">Vurderinger i nærheten (±3 dager)</p>
+        <p id="conflictHeading" class="conflict-heading">Vurderinger denne, forrige og neste uke</p>
         <div id="conflictList" class="conflict-list"></div>
       </div>
-
       <p id="modalError" class="form-error" aria-live="polite"></p>
-
       <div class="modal-actions">
         <button type="button" id="modalCancel" class="btn btn-ghost">Avbryt</button>
         <button type="submit" id="saveBtn" class="btn btn-primary">Lagre</button>
@@ -67,11 +58,30 @@
     </form>
   </div>
 
+  <!-- Confirm / Alert dialog -->
+  <div id="confirmOverlay" class="confirm-overlay"></div>
+  <div id="confirmDialog" class="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirmMessage">
+    <p id="confirmMessage" class="confirm-message"></p>
+    <div class="confirm-actions">
+      <button id="confirmCancel" class="btn btn-ghost">Avbryt</button>
+      <button id="confirmOk" class="btn btn-primary">Bekreft</button>
+    </div>
+  </div>
+
+  <!-- Teacher day panel (calendar view) -->
+  <div id="teacherPanelOverlay" class="panel-overlay" aria-hidden="true"></div>
+  <aside id="teacherPanel" class="detail-panel" aria-label="Dagdetaljer">
+    <button id="teacherPanelClose" class="panel-close" aria-label="Lukk">&times;</button>
+    <h2 id="teacherPanelTitle" class="panel-title"></h2>
+    <button id="teacherPanelAdd" class="btn btn-primary panel-add-btn">+ Legg til for denne datoen</button>
+    <div id="teacherPanelBody" class="panel-body"></div>
+  </aside>
+
   <!-- ── Login view ── -->
   <div id="loginView" class="login-page">
     <div class="login-card">
       <h1 class="login-title">Vurderingskalender</h1>
-      <p class="login-subtitle">Runni ungdomsskole — Lærere</p>
+      <p class="login-subtitle">Runni ungdomsskole</p>
       <form id="loginForm" novalidate>
         <div class="field">
           <label for="passwordInput" class="field-label">Passord</label>
@@ -80,6 +90,7 @@
         <p id="loginError" class="form-error" aria-live="polite"></p>
         <button type="submit" id="loginBtn" class="btn btn-primary btn-full">Logg inn</button>
       </form>
+      <img id="wrongPasswordImg" src="sel-glenn-browning.jpg" alt="" class="wrong-password-img" hidden>
     </div>
   </div>
 
@@ -88,7 +99,7 @@
     <header class="site-header">
       <div class="header-left">
         <h1 class="site-title">Vurderingskalender</h1>
-        <p class="site-subtitle">Lærere — Runni ungdomsskole</p>
+        <p class="site-subtitle">Runni ungdomsskole</p>
       </div>
       <div class="header-right">
         <button id="refreshBtn" class="btn btn-ghost" title="Hent ferske data fra server">&#8635; Oppdater</button>
@@ -99,26 +110,72 @@
     <main class="main">
       <div class="toolbar">
         <button id="addBtn" class="btn btn-primary">+ Legg til vurdering</button>
+        <div class="view-toggle-group" role="group" aria-label="Visningsvalg">
+          <button id="viewTable" class="view-toggle-btn active">Tabell</button>
+          <button id="viewCalendar" class="view-toggle-btn">Kalender</button>
+        </div>
         <label class="toggle-label">
           <input type="checkbox" id="showPastToggle">
-          Vis tidligere vurderinger
+          Vis tidligere
         </label>
       </div>
 
-      <div class="table-wrap">
-        <table id="dataTable" class="data-table">
-          <thead>
-            <tr>
-              <th>Dato</th>
-              <th>Klasse(r)</th>
-              <th>Fag</th>
-              <th>Beskrivelse</th>
-              <th>Lærer</th>
-              <th class="action-th"></th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+      <div class="filter-bar">
+        <div class="filter-section">
+          <span class="filter-section-label">Dato</span>
+          <label class="date-label">Fra <input type="date" id="filterStart" class="input input-date"></label>
+          <label class="date-label">Til <input type="date" id="filterEnd" class="input input-date"></label>
+        </div>
+        <div class="filter-section filter-section-classes">
+          <span class="filter-section-label">Klasse</span>
+          <div id="filterClassBtns" class="filter-class-btns"></div>
+        </div>
+      </div>
+
+      <!-- Table view -->
+      <div id="tableView">
+        <div class="table-wrap">
+          <table id="dataTable" class="data-table">
+            <colgroup>
+              <col style="width:100px">  <!-- Dato -->
+              <col style="width:150px">  <!-- Klasse(r) -->
+              <col style="width:150px">  <!-- Fag -->
+              <col>                      <!-- Beskrivelse takes remaining space -->
+              <col style="width:130px">  <!-- Lærer -->
+              <col style="width:140px">  <!-- Actions -->
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Dato</th>
+                <th>Klasse(r)</th>
+                <th>Fag</th>
+                <th>Beskrivelse</th>
+                <th>Lærer</th>
+                <th class="action-th"></th>
+              </tr>
+              <tr class="col-filters-row">
+                <th><input type="text" id="cfDate"    class="col-filter" placeholder="Søk dato…"    autocomplete="off"></th>
+                <th><input type="text" id="cfClass"   class="col-filter" placeholder="Søk klasse…"  autocomplete="off"></th>
+                <th><input type="text" id="cfSubject" class="col-filter" placeholder="Søk fag…"     autocomplete="off"></th>
+                <th><input type="text" id="cfDesc"    class="col-filter" placeholder="Søk…"         autocomplete="off"></th>
+                <th><input type="text" id="cfTeacher" class="col-filter" placeholder="Søk lærer…"   autocomplete="off"></th>
+                <th>
+                  <select id="cfLegacy" class="col-filter">
+                    <option value="all">Alle</option>
+                    <option value="new">Nye</option>
+                    <option value="legacy">Eldre</option>
+                  </select>
+                </th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Calendar view -->
+      <div id="calendarView" hidden>
+        <div id="teacherCalendar" class="calendar"></div>
       </div>
     </main>
 

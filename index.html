@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Vurderingskalender — Runni ungdomsskole</title>
+  <title>Vurderingskalender: Runni ungdomsskole</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -17,6 +17,20 @@
   </div>
 
   <!-- Detail panel backdrop -->
+  <!-- Class selection modal -->
+  <div id="classModalOverlay" class="class-modal-overlay"></div>
+  <div id="classModal" class="class-modal" role="dialog" aria-modal="true" aria-labelledby="classModalTitle">
+    <div class="class-modal-header">
+      <h2 id="classModalTitle" class="class-modal-title">Velg din klasse</h2>
+      <button id="classModalClose" class="panel-close" aria-label="Lukk">&times;</button>
+    </div>
+    <div id="classModalGrid" class="class-modal-grid"></div>
+    <div class="class-modal-actions">
+      <button id="classModalAll" class="btn btn-ghost">Vis alle klasser</button>
+      <button id="classModalConfirm" class="btn btn-primary" disabled>Bekreft</button>
+    </div>
+  </div>
+
   <div id="panelOverlay" class="panel-overlay" aria-hidden="true"></div>
 
   <!-- Day detail panel -->

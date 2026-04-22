@@ -6,6 +6,13 @@ const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwsXqoLZW8RlIAwvGN1y
 const CACHE_KEY    = 'vk_data';
 const CACHE_TS_KEY = 'vk_data_ts';
 const CACHE_TTL    = 60 * 60 * 1000; // 1 hour
+const CLASS_KEY    = 'vk_class_selection';
+
+const CLASSES = [
+  '8A','8B','8C','8D','8E','8F',
+  '9A','9B','9C','9D','9E','9F',
+  '10A','10B','10C','10D','10E','10F'
+];
 
 let allData    = [];
 let searchTerm = '';
@@ -22,8 +29,10 @@ async function init() {
   if (cached) {
     allData = cached;
     updateStatus();
+    applyRememberedClass();
     render();
     hideOverlay();
+    showClassModal();
   } else {
     await fetchAndCache();
   }
@@ -36,7 +45,15 @@ function setupListeners() {
   document.getElementById('refreshBtn').addEventListener('click', () => fetchAndCache(true));
   document.getElementById('panelClose').addEventListener('click', closePanel);
   document.getElementById('panelOverlay').addEventListener('click', closePanel);
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closePanel(); });
+  document.getElementById('classModalClose').addEventListener('click', () => closeClassModal(null));
+  document.getElementById('classModalAll').addEventListener('click', () => closeClassModal(null));
+  document.getElementById('classModalConfirm').addEventListener('click', () => {
+    const active = document.querySelector('.class-modal-btn.active');
+    closeClassModal(active ? active.textContent : null);
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { closePanel(); closeClassModal(null); }
+  });
 }
 
 function setDefaultDates() {
@@ -58,10 +75,56 @@ async function fetchAndCache(force = false) {
     allData = data;
     setCachedData(allData);
     updateStatus();
+    applyRememberedClass();
     render();
     hideOverlay();
+    showClassModal();
   } catch (err) {
     showOverlayError('Kunne ikke laste data. Sjekk tilkoblingen og prøv igjen.');
+  }
+}
+
+// ─── Class selection modal ─────────────────────────────────────
+
+function applyRememberedClass() {
+  const saved = localStorage.getItem(CLASS_KEY);
+  if (saved) {
+    searchTerm = saved.toUpperCase();
+    document.getElementById('classSearch').value = saved;
+  }
+}
+
+function showClassModal() {
+  const saved = localStorage.getItem(CLASS_KEY);
+  const grid  = document.getElementById('classModalGrid');
+  grid.innerHTML = '';
+
+  CLASSES.forEach(cls => {
+    const btn = document.createElement('button');
+    btn.type        = 'button';
+    btn.className   = 'class-modal-btn' + (cls === saved ? ' active' : '');
+    btn.textContent = cls;
+    btn.addEventListener('click', () => {
+      grid.querySelectorAll('.class-modal-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('classModalConfirm').disabled = false;
+    });
+    grid.appendChild(btn);
+  });
+
+  document.getElementById('classModalConfirm').disabled = !saved;
+  document.getElementById('classModalOverlay').classList.add('open');
+  document.getElementById('classModal').classList.add('open');
+}
+
+function closeClassModal(selectedClass) {
+  document.getElementById('classModalOverlay').classList.remove('open');
+  document.getElementById('classModal').classList.remove('open');
+  if (selectedClass) {
+    localStorage.setItem(CLASS_KEY, selectedClass);
+    searchTerm = selectedClass.toUpperCase();
+    document.getElementById('classSearch').value = selectedClass;
+    render();
   }
 }
 
@@ -332,7 +395,7 @@ function getWeekNumber(d) {
 
 function formatDateLong(d) {
   const days = ['Søndag', 'Mandag', 'Tirsdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lørdag'];
-  return `${days[d.getDay()]} ${d.getDate()}. ${d.toLocaleString('no', { month: 'long' })} ${d.getFullYear()} — uke ${getWeekNumber(d)}`;
+  return `${days[d.getDay()]} ${d.getDate()}. ${d.toLocaleString('no', { month: 'long' })} ${d.getFullYear()} - uke ${getWeekNumber(d)}`;
 }
 
 function capitalizeFirst(s) {
