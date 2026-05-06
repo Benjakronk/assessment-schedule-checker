@@ -552,6 +552,7 @@ function buildTeacherMonthCard(monthDate, byDate) {
         const entries = byDate[dateKey] || [];
 
         td.className = 'day';
+        if (d >= 5) td.classList.add('weekend');
         if (dateKey === todayKey) td.classList.add('today');
         applySchoolDay(td, dateKey);
 
@@ -583,6 +584,7 @@ function buildTeacherMonthCard(monthDate, byDate) {
         });
       } else {
         td.className   = 'day other-month';
+        if (d >= 5) td.classList.add('weekend');
         td.textContent = cursor.getDate();
       }
 

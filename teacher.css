@@ -664,6 +664,8 @@ select.col-filter { cursor: pointer; }
 }
 .day:hover { background: var(--primary-light); }
 .day-num { display: block; font-size: 13px; font-weight: 500; line-height: 1; margin-bottom: 4px; }
+/* Saturdays + Sundays — subtle gray; any state below (today, assessment, school) overrides */
+.weekend { background: #eef2f6; }
 .other-month {
   color: var(--text-muted); font-size: 12px; padding: 6px 4px;
   text-align: center; border-bottom: 1px solid var(--border);
