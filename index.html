@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Vurderingskalender: Runni ungdomsskole</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <meta name="theme-color" content="#2563eb">
 </head>
 <body>
 
@@ -21,9 +24,10 @@
   <div id="classModalOverlay" class="class-modal-overlay"></div>
   <div id="classModal" class="class-modal" role="dialog" aria-modal="true" aria-labelledby="classModalTitle">
     <div class="class-modal-header">
-      <h2 id="classModalTitle" class="class-modal-title">Velg din klasse</h2>
+      <h2 id="classModalTitle" class="class-modal-title">Velg klasse(r)</h2>
       <button id="classModalClose" class="panel-close" aria-label="Lukk">&times;</button>
     </div>
+    <p class="class-modal-hint">Du kan velge én eller flere klasser.</p>
     <div id="classModalGrid" class="class-modal-grid"></div>
     <div class="class-modal-actions">
       <button id="classModalAll" class="btn btn-ghost">Vis alle klasser</button>
@@ -50,15 +54,10 @@
 
     <main class="main">
       <div class="controls">
-        <div class="control-search">
-          <label for="classSearch" class="sr-only">Filtrer klasse</label>
-          <input
-            type="text"
-            id="classSearch"
-            class="input"
-            placeholder="Filtrer klasse (f.eks. 9A)…"
-            autocomplete="off"
-          >
+        <div class="control-classes">
+          <span class="control-label">Klasse</span>
+          <div id="classFilterBtns" class="class-filter-btns"></div>
+          <button id="clearClassesBtn" class="btn btn-ghost btn-tiny" hidden>Tøm</button>
         </div>
         <div class="control-dates">
           <label class="date-label">
@@ -70,9 +69,14 @@
             <input type="date" id="endDate" class="input input-date">
           </label>
         </div>
-        <button id="refreshBtn" class="btn btn-ghost" title="Tving ny henting fra server">
+        <button id="jumpTodayBtn" class="btn btn-ghost" title="Bla til i dag">I dag</button>
+        <button id="refreshBtn" class="btn btn-ghost" title="Hent ferske data fra server">
           &#8635; Oppdater
         </button>
+        <span id="bgLoading" class="bg-loading" role="status" aria-live="polite">
+          <span class="mini-spinner"></span>
+          <span>Oppdaterer…</span>
+        </span>
       </div>
 
       <div id="calendar" class="calendar"></div>
@@ -81,6 +85,12 @@
     <footer class="site-footer">
       <p id="lastUpdated" class="last-updated"></p>
     </footer>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden>
+    <span class="toast-msg"></span>
+    <button type="button" class="toast-action" hidden></button>
   </div>
 
   <script src="script.js"></script>

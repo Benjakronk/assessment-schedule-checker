@@ -7,15 +7,27 @@ const CACHE_KEY    = 'vk_data';
 const CACHE_TS_KEY = 'vk_data_ts';
 const CACHE_TTL    = 60 * 60 * 1000; // 1 hour
 const CLASS_KEY    = 'vk_class_selection';
+const STALE_DELAY  = 10 * 60 * 1000; // mark stale after 10 min of failed background refresh
 
-const CLASSES = [
-  '8A','8B','8C','8D','8E','8F',
-  '9A','9B','9C','9D','9E','9F',
-  '10A','10B','10C','10D','10E','10F'
+const SCHOOL_CAL_URL    = 'https://sspkalender.prokom.no/api/iCalTidspunkt/?Kunde=nesakskoleruta&Id=0&Categories=438,439';
+const SCHOOL_CAL_KEY    = 'vk_school_cal';
+const SCHOOL_CAL_TS_KEY = 'vk_school_cal_ts';
+const SCHOOL_CAL_TTL    = 24 * 60 * 60 * 1000;
+
+const CLASS_GRADES = [
+  { label: '8.',  classes: ['8A','8B','8C','8D','8E','8F'] },
+  { label: '9.',  classes: ['9A','9B','9C','9D','9E','9F'] },
+  { label: '10.', classes: ['10A','10B','10C','10D','10E','10F'] },
 ];
+const CLASSES = CLASS_GRADES.flatMap(g => g.classes);
 
-let allData    = [];
-let searchTerm = '';
+const SCHOOL_YEAR = getSchoolYearBounds(new Date());
+
+let allData         = [];
+let selectedClasses = []; // active class filter (empty = show all)
+let staleTimer      = null;
+let lastFocusedEl   = null;
+let schoolDays      = loadCachedSchoolDays() || {}; // ISO date -> { type, summaries }
 
 // ─── Lifecycle ────────────────────────────────────────────────
 
@@ -23,7 +35,13 @@ window.addEventListener('DOMContentLoaded', init);
 
 async function init() {
   setupListeners();
+  setupClassFilterBtns();
   setDefaultDates();
+  loadSchoolCalendar();
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
 
   const cached = getCachedData();
   if (cached) {
@@ -33,40 +51,71 @@ async function init() {
     render();
     hideOverlay();
     showClassModal();
+    fetchAndCache({ background: true });
   } else {
     await fetchAndCache();
   }
 }
 
 function setupListeners() {
-  document.getElementById('classSearch').addEventListener('input', debounce(onSearchChange, 300));
-  document.getElementById('startDate').addEventListener('change', render);
-  document.getElementById('endDate').addEventListener('change', render);
-  document.getElementById('refreshBtn').addEventListener('click', () => fetchAndCache(true));
+  document.getElementById('startDate').addEventListener('change', onDateInputChange);
+  document.getElementById('endDate').addEventListener('change', onDateInputChange);
+  document.getElementById('refreshBtn').addEventListener('click', () => fetchAndCache({ background: allData.length > 0 }));
+  document.getElementById('clearClassesBtn').addEventListener('click', clearClassFilter);
+  document.getElementById('jumpTodayBtn').addEventListener('click', jumpToToday);
   document.getElementById('panelClose').addEventListener('click', closePanel);
   document.getElementById('panelOverlay').addEventListener('click', closePanel);
   document.getElementById('classModalClose').addEventListener('click', () => closeClassModal(null));
-  document.getElementById('classModalAll').addEventListener('click', () => closeClassModal(null));
-  document.getElementById('classModalConfirm').addEventListener('click', () => {
-    const active = document.querySelector('.class-modal-btn.active');
-    closeClassModal(active ? active.textContent : null);
-  });
+  document.getElementById('classModalAll').addEventListener('click', () => closeClassModal('all'));
+  document.getElementById('classModalConfirm').addEventListener('click', () => closeClassModal('confirm'));
+
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { closePanel(); closeClassModal(null); }
+    if (e.key === 'Escape') {
+      if (document.getElementById('classModal').classList.contains('open')) closeClassModal(null);
+      else closePanel();
+      return;
+    }
+    if (e.key === 'Tab') {
+      const classModal = document.getElementById('classModal');
+      const panel = document.getElementById('detailPanel');
+      if (classModal.classList.contains('open')) trapFocus(classModal, e);
+      else if (panel.classList.contains('open')) trapFocus(panel, e);
+    }
   });
 }
 
 function setDefaultDates() {
-  const today         = new Date();
-  const twoMonthsOut  = new Date(today.getFullYear(), today.getMonth() + 2, today.getDate());
-  document.getElementById('startDate').valueAsDate = today;
-  document.getElementById('endDate').valueAsDate   = twoMonthsOut;
+  const startEl = document.getElementById('startDate');
+  const endEl   = document.getElementById('endDate');
+  startEl.min = endEl.min = SCHOOL_YEAR.start;
+  startEl.max = endEl.max = SCHOOL_YEAR.end;
+
+  const today        = new Date();
+  const twoMonthsOut = new Date(today.getFullYear(), today.getMonth() + 2, today.getDate());
+  startEl.value = clampToSchoolYear(toISODate(today));
+  endEl.value   = clampToSchoolYear(toISODate(twoMonthsOut));
+}
+
+function onDateInputChange() {
+  const startEl = document.getElementById('startDate');
+  const endEl   = document.getElementById('endDate');
+  let start = startEl.value, end = endEl.value;
+  // Swap if inverted
+  if (start && end && start > end) {
+    startEl.value = end;
+    endEl.value   = start;
+    showToast('Datointervallet ble byttet om');
+  }
+  render();
 }
 
 // ─── Data fetching ────────────────────────────────────────────
 
-async function fetchAndCache(force = false) {
-  showOverlay();
+async function fetchAndCache(opts = {}) {
+  const { background = false } = opts;
+  if (background) showBgLoading();
+  else showOverlay();
+
   try {
     const res = await fetch(`${SCRIPT_URL}?action=public`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -75,66 +124,150 @@ async function fetchAndCache(force = false) {
     allData = data;
     setCachedData(allData);
     updateStatus();
-    applyRememberedClass();
+    clearStale();
+    if (!background) applyRememberedClass();
     render();
-    hideOverlay();
-    showClassModal();
+    if (background) hideBgLoading();
+    else { hideOverlay(); showClassModal(); }
   } catch (err) {
-    showOverlayError('Kunne ikke laste data. Sjekk tilkoblingen og prøv igjen.');
+    if (background) {
+      hideBgLoading();
+      scheduleStaleSignal();
+      // Keep showing cached data; don't disrupt the user.
+    } else {
+      showOverlayError('Kunne ikke laste data. Sjekk tilkoblingen og prøv igjen.');
+    }
   }
 }
 
-// ─── Class selection modal ─────────────────────────────────────
+// ─── Class filter buttons ─────────────────────────────────────
+
+function setupClassFilterBtns() {
+  const container = document.getElementById('classFilterBtns');
+  container.innerHTML = '';
+  CLASS_GRADES.forEach(group => {
+    const wrap = document.createElement('div');
+    wrap.className = 'class-grade-group';
+    const lbl = document.createElement('span');
+    lbl.className = 'class-grade-label';
+    lbl.textContent = group.label;
+    wrap.appendChild(lbl);
+    group.classes.forEach(cls => {
+      const btn = document.createElement('button');
+      btn.type        = 'button';
+      btn.className   = 'class-filter-btn';
+      btn.textContent = cls;
+      btn.dataset.cls = cls;
+      btn.addEventListener('click', () => {
+        btn.classList.toggle('active');
+        selectedClasses = [...container.querySelectorAll('.class-filter-btn.active')].map(b => b.dataset.cls);
+        saveSelectedClasses();
+        updateClearBtn();
+        render();
+      });
+      wrap.appendChild(btn);
+    });
+    container.appendChild(wrap);
+  });
+  updateClearBtn();
+}
+
+function syncClassFilterBtns() {
+  document.querySelectorAll('#classFilterBtns .class-filter-btn').forEach(b => {
+    b.classList.toggle('active', selectedClasses.includes(b.dataset.cls));
+  });
+  updateClearBtn();
+}
+
+function updateClearBtn() {
+  document.getElementById('clearClassesBtn').hidden = selectedClasses.length === 0;
+}
+
+function clearClassFilter() {
+  selectedClasses = [];
+  saveSelectedClasses();
+  syncClassFilterBtns();
+  render();
+}
 
 function applyRememberedClass() {
-  const saved = localStorage.getItem(CLASS_KEY);
-  if (saved) {
-    searchTerm = saved.toUpperCase();
-    document.getElementById('classSearch').value = saved;
+  const raw = localStorage.getItem(CLASS_KEY);
+  if (raw === null) { selectedClasses = []; syncClassFilterBtns(); return; }
+  let saved;
+  try {
+    const parsed = JSON.parse(raw);
+    saved = Array.isArray(parsed) ? parsed : [String(parsed)];
+  } catch {
+    saved = [raw]; // legacy single-string format
   }
+  selectedClasses = saved.map(s => String(s).toUpperCase()).filter(s => CLASSES.includes(s));
+  syncClassFilterBtns();
 }
+
+function saveSelectedClasses() {
+  // Always write — an empty array is a valid "view all" choice and suppresses the modal.
+  localStorage.setItem(CLASS_KEY, JSON.stringify(selectedClasses));
+}
+
+// ─── Class selection modal (first visit) ───────────────────────
 
 function showClassModal() {
-  const saved = localStorage.getItem(CLASS_KEY);
-  if (saved) return; // class already chosen on a previous visit — apply silently, skip modal
-  const grid  = document.getElementById('classModalGrid');
+  if (localStorage.getItem(CLASS_KEY) !== null) return; // user has made a choice (even [] = "view all")
+
+  const grid = document.getElementById('classModalGrid');
   grid.innerHTML = '';
 
-  CLASSES.forEach(cls => {
-    const btn = document.createElement('button');
-    btn.type        = 'button';
-    btn.className   = 'class-modal-btn' + (cls === saved ? ' active' : '');
-    btn.textContent = cls;
-    btn.addEventListener('click', () => {
-      grid.querySelectorAll('.class-modal-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      document.getElementById('classModalConfirm').disabled = false;
+  CLASS_GRADES.forEach(group => {
+    const wrap = document.createElement('div');
+    wrap.className = 'class-modal-group';
+    const lbl = document.createElement('span');
+    lbl.className = 'class-grade-label';
+    lbl.textContent = group.label;
+    wrap.appendChild(lbl);
+    group.classes.forEach(cls => {
+      const btn = document.createElement('button');
+      btn.type        = 'button';
+      btn.className   = 'class-modal-btn';
+      btn.textContent = cls;
+      btn.dataset.cls = cls;
+      btn.addEventListener('click', () => {
+        btn.classList.toggle('active');
+        const anyActive = grid.querySelector('.class-modal-btn.active');
+        document.getElementById('classModalConfirm').disabled = !anyActive;
+      });
+      wrap.appendChild(btn);
     });
-    grid.appendChild(btn);
+    grid.appendChild(wrap);
   });
 
-  document.getElementById('classModalConfirm').disabled = !saved;
+  document.getElementById('classModalConfirm').disabled = true;
+  rememberFocus();
   document.getElementById('classModalOverlay').classList.add('open');
   document.getElementById('classModal').classList.add('open');
+  setTimeout(() => grid.querySelector('.class-modal-btn')?.focus(), 60);
 }
 
-function closeClassModal(selectedClass) {
+function closeClassModal(action) {
   document.getElementById('classModalOverlay').classList.remove('open');
   document.getElementById('classModal').classList.remove('open');
-  if (selectedClass) {
-    localStorage.setItem(CLASS_KEY, selectedClass);
-    searchTerm = selectedClass.toUpperCase();
-    document.getElementById('classSearch').value = selectedClass;
+
+  if (action === 'confirm') {
+    const chosen = [...document.querySelectorAll('#classModalGrid .class-modal-btn.active')].map(b => b.dataset.cls);
+    selectedClasses = chosen;
+    saveSelectedClasses();
+    syncClassFilterBtns();
+    render();
+  } else if (action === 'all') {
+    selectedClasses = [];
+    saveSelectedClasses(); // [] sentinel — suppresses future modal opens
+    syncClassFilterBtns();
     render();
   }
+  // action === null (X / Escape): no persistence; modal will appear on next visit.
+  restoreFocus();
 }
 
 // ─── Rendering ────────────────────────────────────────────────
-
-function onSearchChange() {
-  searchTerm = document.getElementById('classSearch').value.trim().toUpperCase();
-  render();
-}
 
 function render() {
   const startInput = document.getElementById('startDate').value;
@@ -148,7 +281,10 @@ function render() {
   const filtered = allData.filter(item => {
     const d = new Date(item.date);
     if (d < startDate || d > endDate) return false;
-    if (searchTerm && !item.classes.toUpperCase().includes(searchTerm)) return false;
+    if (selectedClasses.length > 0) {
+      const entryClasses = item.classes.toUpperCase().replace(/,/g, ' ').split(/\s+/).filter(Boolean);
+      if (!selectedClasses.some(c => entryClasses.includes(c))) return false;
+    }
     return true;
   });
 
@@ -159,19 +295,17 @@ function renderCalendar(data, startDate, endDate) {
   const container = document.getElementById('calendar');
   container.innerHTML = '';
 
-  if (data.length === 0 && searchTerm) {
-    container.innerHTML = '<p class="empty-state">Ingen vurderinger funnet for denne klassen i valgt periode.</p>';
+  if (data.length === 0 && selectedClasses.length > 0) {
+    container.innerHTML = '<p class="empty-state">Ingen vurderinger funnet for valgt(e) klasse(r) i denne perioden.</p>';
     return;
   }
 
-  // Build date → assessments[] lookup
   const byDate = {};
   data.forEach(item => {
     if (!byDate[item.date]) byDate[item.date] = [];
     byDate[item.date].push(item);
   });
 
-  // Iterate month by month
   let cursor    = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
   const endMonth = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
 
@@ -198,7 +332,6 @@ function buildMonthCard(monthDate, byDate) {
   const table = document.createElement('table');
   table.className = 'cal-table';
 
-  // Header row
   const thead = table.createTHead();
   const headerRow = thead.insertRow();
   ['Uke', 'Man', 'Tir', 'Ons', 'Tor', 'Fre', 'Lør', 'Søn'].forEach(label => {
@@ -207,13 +340,11 @@ function buildMonthCard(monthDate, byDate) {
     headerRow.appendChild(th);
   });
 
-  // Body rows
   const tbody = table.createTBody();
   const today = toISODate(new Date());
 
-  // Start from Monday of the week containing the 1st
   let cursor = new Date(year, month, 1);
-  const startDow = cursor.getDay() || 7; // Mon=1 … Sun=7
+  const startDow = cursor.getDay() || 7;
   cursor.setDate(cursor.getDate() - startDow + 1);
 
   const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
@@ -236,6 +367,7 @@ function buildMonthCard(monthDate, byDate) {
 
         td.className = 'day';
         if (dateKey === today) td.classList.add('today');
+        applySchoolDay(td, dateKey);
 
         const num = document.createElement('span');
         num.className = 'day-num';
@@ -254,11 +386,23 @@ function buildMonthCard(monthDate, byDate) {
             dotsWrap.appendChild(dot);
           }
           td.appendChild(dotsWrap);
+        }
 
-          // Snapshot loop variables for the click handler
-          const snapDate = new Date(cursor);
+        const schoolDay = schoolDays[dateKey];
+        if (assessments.length > 0 || schoolDay) {
+          const snapDate  = new Date(cursor);
           const snapItems = assessments.slice();
+          const monthName = monthDate.toLocaleString('no', { month: 'long' });
+          let label = `${cursor.getDate()}. ${monthName}`;
+          if (assessments.length > 0) label += `, ${assessments.length} vurdering${assessments.length !== 1 ? 'er' : ''}`;
+          if (schoolDay) label += `, ${schoolDay.summaries.join(', ')}`;
+          td.tabIndex = 0;
+          td.setAttribute('role', 'button');
+          td.setAttribute('aria-label', label);
           td.addEventListener('click', () => openPanel(snapDate, snapItems));
+          td.addEventListener('keydown', e => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPanel(snapDate, snapItems); }
+          });
         }
       } else {
         td.className = 'day other-month';
@@ -274,13 +418,40 @@ function buildMonthCard(monthDate, byDate) {
   return card;
 }
 
+function jumpToToday() {
+  let todayCell = document.querySelector('.day.today');
+  if (!todayCell) {
+    // Today is outside the current visible range — bring it into range first.
+    const todayISO = toISODate(new Date());
+    if (todayISO < SCHOOL_YEAR.start || todayISO > SCHOOL_YEAR.end) {
+      showToast('I dag er utenfor dette skoleåret');
+      return;
+    }
+    setDefaultDates();
+    render();
+    todayCell = document.querySelector('.day.today');
+  }
+  todayCell?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
 // ─── Detail panel ─────────────────────────────────────────────
 
 function openPanel(date, assessments) {
+  rememberFocus();
   document.getElementById('panelTitle').textContent = formatDateLong(date);
 
   const body = document.getElementById('panelBody');
   body.innerHTML = '';
+
+  const sch = schoolDays[toISODate(date)];
+  if (sch) body.appendChild(buildSchoolDayCard(sch));
+
+  if (assessments.length === 0 && sch) {
+    const note = document.createElement('p');
+    note.className   = 'panel-empty';
+    note.textContent = 'Ingen vurderinger denne dagen.';
+    body.appendChild(note);
+  }
 
   assessments.forEach(a => {
     const card = document.createElement('div');
@@ -316,14 +487,16 @@ function openPanel(date, assessments) {
 
   document.getElementById('panelOverlay').classList.add('open');
   document.getElementById('detailPanel').classList.add('open');
+  setTimeout(() => document.getElementById('panelClose').focus(), 60);
 }
 
 function closePanel() {
   document.getElementById('panelOverlay').classList.remove('open');
   document.getElementById('detailPanel').classList.remove('open');
+  restoreFocus();
 }
 
-// ─── Overlay ──────────────────────────────────────────────────
+// ─── Overlay & background-loading indicator ───────────────────
 
 function showOverlay() {
   const overlay = document.getElementById('overlay');
@@ -350,11 +523,76 @@ function showOverlayError(msg) {
     const btn = document.createElement('button');
     btn.className = 'btn btn-primary overlay-retry';
     btn.textContent = 'Prøv igjen';
-    btn.addEventListener('click', () => fetchAndCache(true));
+    btn.addEventListener('click', () => fetchAndCache());
     overlay.querySelector('.overlay-inner').appendChild(btn);
   }
 
   overlay.classList.add('active');
+}
+
+function showBgLoading() { document.getElementById('bgLoading')?.classList.add('active'); }
+function hideBgLoading() { document.getElementById('bgLoading')?.classList.remove('active'); }
+
+// ─── Stale data signal ────────────────────────────────────────
+
+function scheduleStaleSignal() {
+  if (staleTimer) return;
+  staleTimer = setTimeout(() => {
+    document.getElementById('lastUpdated')?.classList.add('stale');
+    staleTimer = null;
+  }, STALE_DELAY);
+}
+
+function clearStale() {
+  if (staleTimer) { clearTimeout(staleTimer); staleTimer = null; }
+  document.getElementById('lastUpdated')?.classList.remove('stale');
+}
+
+// ─── Toast ────────────────────────────────────────────────────
+
+function showToast(message, opts = {}) {
+  const toast = document.getElementById('toast');
+  toast.querySelector('.toast-msg').textContent = message;
+  const actionBtn = toast.querySelector('.toast-action');
+  if (opts.actionLabel) {
+    actionBtn.textContent = opts.actionLabel;
+    actionBtn.hidden = false;
+    actionBtn.onclick = () => { opts.onAction?.(); hideToast(); };
+  } else {
+    actionBtn.hidden = true;
+    actionBtn.onclick = null;
+  }
+  toast.hidden = false;
+  requestAnimationFrame(() => toast.classList.add('show'));
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(hideToast, opts.duration ?? 3000);
+}
+
+function hideToast() {
+  const toast = document.getElementById('toast');
+  toast.classList.remove('show');
+  clearTimeout(toast._timer);
+  setTimeout(() => { toast.hidden = true; }, 250);
+}
+
+// ─── Focus management ────────────────────────────────────────
+
+function rememberFocus() { lastFocusedEl = document.activeElement; }
+function restoreFocus() {
+  if (lastFocusedEl && typeof lastFocusedEl.focus === 'function') {
+    try { lastFocusedEl.focus(); } catch {}
+  }
+  lastFocusedEl = null;
+}
+
+function trapFocus(container, e) {
+  const focusables = [...container.querySelectorAll(
+    'button:not([disabled]):not([hidden]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )].filter(el => el.offsetParent !== null);
+  if (focusables.length === 0) return;
+  const first = focusables[0], last = focusables[focusables.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 }
 
 // ─── Cache ────────────────────────────────────────────────────
@@ -383,6 +621,21 @@ function updateStatus() {
 
 // ─── Utilities ────────────────────────────────────────────────
 
+function getSchoolYearBounds(today) {
+  const y = today.getFullYear();
+  const m = today.getMonth();
+  const d = today.getDate();
+  const pastJun21 = m > 5 || (m === 5 && d > 21);
+  if (pastJun21) return { start: `${y}-08-15`,   end: `${y + 1}-06-21` };
+  return                  { start: `${y - 1}-08-15`, end: `${y}-06-21` };
+}
+
+function clampToSchoolYear(iso) {
+  if (iso < SCHOOL_YEAR.start) return SCHOOL_YEAR.start;
+  if (iso > SCHOOL_YEAR.end)   return SCHOOL_YEAR.end;
+  return iso;
+}
+
 function toISODate(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
@@ -403,10 +656,130 @@ function capitalizeFirst(s) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function debounce(fn, ms) {
-  let timer;
-  return (...args) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), ms);
-  };
+// ─── School calendar (Nes kommune iCal) ───────────────────────
+
+const SCHOOL_TYPE_LABEL = {
+  off:      'Skolefri',
+  planning: 'Planleggingsdag',
+  marker:   'Skoledag-markering'
+};
+
+function buildSchoolDayCard(sch) {
+  const card = document.createElement('div');
+  card.className = 'school-day-card school-day-' + sch.type;
+
+  const label = document.createElement('div');
+  label.className   = 'school-day-label';
+  label.textContent = SCHOOL_TYPE_LABEL[sch.type] || sch.type;
+  card.appendChild(label);
+
+  sch.summaries.forEach(s => {
+    const line = document.createElement('div');
+    line.className   = 'school-day-summary';
+    line.textContent = s;
+    card.appendChild(line);
+  });
+  return card;
+}
+
+function applySchoolDay(td, dateKey) {
+  const sch = schoolDays[dateKey];
+  if (!sch) return;
+  td.classList.add('school-' + sch.type);
+  if (sch.summaries.length) td.title = sch.summaries.join(', ');
+  if (sch.type === 'planning') {
+    const badge = document.createElement('span');
+    badge.className = 'school-badge';
+    badge.textContent = 'P';
+    td.appendChild(badge);
+  }
+}
+
+function classifySchoolEvent(summary) {
+  const s = (summary || '').toLowerCase();
+  if (!s || s.includes('sfo')) return null; // not relevant for ungdomsskole
+  if (s.includes('planleggingsdag')) return 'planning';
+  if (s.includes('første skoledag') || s.includes('siste skoledag')) return 'marker';
+  if (
+    s.includes('ferie') ||
+    s.includes('himmelfartsdag') ||
+    s.includes('pinsedag') ||
+    s.includes('grunnlovsdag') ||
+    s.includes('1.mai') || s.includes('1. mai') ||
+    s.includes('skjærtorsdag') || s.includes('langfredag') || s.includes('påskedag') ||
+    s.includes('julaften') || s.includes('nyttårsaften') ||
+    s.includes('juledag') || s.includes('nyttårsdag')
+  ) return 'off';
+  return null; // unknown summary — leave un-styled
+}
+
+function parseICS(text) {
+  const unfolded = text.replace(/\r?\n[ \t]/g, ''); // unfold continuation lines
+  const lines = unfolded.split(/\r?\n/);
+  const events = [];
+  let current = null;
+  for (const line of lines) {
+    if (line === 'BEGIN:VEVENT') { current = {}; continue; }
+    if (line === 'END:VEVENT')   { if (current) events.push(current); current = null; continue; }
+    if (!current) continue;
+    const m = line.match(/^([A-Z]+)(?:;[^:]*)?:(.*)$/);
+    if (!m) continue;
+    const [, key, val] = m;
+    if (key === 'DTSTART')      current.dtstart = val.trim();
+    else if (key === 'SUMMARY') current.summary = unescapeICS(val);
+  }
+  return events
+    .map(e => ({ date: icsDateToISO(e.dtstart), summary: e.summary || '' }))
+    .filter(e => e.date);
+}
+
+function icsDateToISO(s) {
+  if (!s) return null;
+  const m = s.match(/^(\d{4})(\d{2})(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+}
+
+function unescapeICS(s) {
+  return s.replace(/\\n/gi, '\n').replace(/\\,/g, ',').replace(/\\;/g, ';').replace(/\\\\/g, '\\');
+}
+
+function buildSchoolDayMap(events) {
+  const priority = { off: 3, planning: 2, marker: 1 };
+  const out = {};
+  for (const e of events) {
+    const type = classifySchoolEvent(e.summary);
+    if (!type) continue;
+    const existing = out[e.date];
+    if (!existing) {
+      out[e.date] = { type, summaries: [e.summary] };
+    } else {
+      if (priority[type] > priority[existing.type]) existing.type = type;
+      if (!existing.summaries.includes(e.summary)) existing.summaries.push(e.summary);
+    }
+  }
+  return out;
+}
+
+function loadCachedSchoolDays() {
+  const ts = localStorage.getItem(SCHOOL_CAL_TS_KEY);
+  if (!ts || Date.now() - Number(ts) > SCHOOL_CAL_TTL) return null;
+  try { return JSON.parse(localStorage.getItem(SCHOOL_CAL_KEY)); } catch { return null; }
+}
+
+async function loadSchoolCalendar() {
+  // Already have a fresh cached copy: render uses it directly. Otherwise, fetch silently.
+  if (Object.keys(schoolDays).length > 0 && loadCachedSchoolDays()) return;
+  try {
+    const res = await fetch(SCHOOL_CAL_URL);
+    if (!res.ok) return;
+    const text = await res.text();
+    const events = parseICS(text);
+    if (events.length === 0) return;
+    schoolDays = buildSchoolDayMap(events);
+    localStorage.setItem(SCHOOL_CAL_KEY,    JSON.stringify(schoolDays));
+    localStorage.setItem(SCHOOL_CAL_TS_KEY, String(Date.now()));
+    render(); // re-render to apply newly-loaded markers
+  } catch {
+    // Silent — we keep whatever was previously cached.
+  }
 }

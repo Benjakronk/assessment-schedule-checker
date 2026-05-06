@@ -5,22 +5,42 @@ const CACHE_KEY        = 'vk_teacher_data';
 const CACHE_TS_KEY     = 'vk_teacher_data_ts';
 const CACHE_TTL        = 60 * 60 * 1000;
 const TEACHER_NAME_KEY = 'vk_teacher_name';
+const CONFLICT_RANGE_KEY = 'vk_conflict_range';
+const STALE_DELAY      = 10 * 60 * 1000;
+const UNDO_DELAY       = 6000;
 
-const CLASSES = [
-  '8A','8B','8C','8D','8E','8F',
-  '9A','9B','9C','9D','9E','9F',
-  '10A','10B','10C','10D','10E','10F'
+const SCHOOL_CAL_URL    = 'https://sspkalender.prokom.no/api/iCalTidspunkt/?Kunde=nesakskoleruta&Id=0&Categories=438,439';
+const SCHOOL_CAL_KEY    = 'vk_school_cal';
+const SCHOOL_CAL_TS_KEY = 'vk_school_cal_ts';
+const SCHOOL_CAL_TTL    = 24 * 60 * 60 * 1000;
+
+const CLASS_GRADES = [
+  { label: '8.',  classes: ['8A','8B','8C','8D','8E','8F'] },
+  { label: '9.',  classes: ['9A','9B','9C','9D','9E','9F'] },
+  { label: '10.', classes: ['10A','10B','10C','10D','10E','10F'] },
 ];
+const CLASSES = CLASS_GRADES.flatMap(g => g.classes);
 
-let teacherData   = [];
-let editingId     = null;
-let showPast      = false;
-let conflictTimer = null;
-let currentView    = 'table';
+const SCHOOL_YEAR = getSchoolYearBounds(new Date());
+
+let teacherData    = [];
+let editingId      = null;
+let cloneTemplate  = null; // populated when opening modal in "clone" mode
+let showPast       = false;
+let onlyMine       = false;
+let conflictTimer  = null;
+let currentView    = 'calendar';
 let filterClasses  = [];
 let filterStart    = '';
 let filterEnd      = '';
-let panelOpenDate = null;
+let panelOpenDate  = null;
+let modalBaseline  = null;
+let lastFocusedEl  = null;
+let staleTimer     = null;
+let schoolDays     = loadCachedSchoolDays() || {}; // ISO date -> { type, summaries }
+
+// id -> { entry, timer } for soft-deleted entries awaiting commit
+const pendingDeletes = new Map();
 
 let colFilterDate    = '';
 let colFilterClass   = '';
@@ -37,6 +57,12 @@ function init() {
   setupLoginListeners();
   setupModalListeners();
   setupConfirmListeners();
+  setupGlobalShortcuts();
+  loadSchoolCalendar();
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
 
   if (sessionStorage.getItem('vk_token')) {
     showDashboard();
@@ -44,14 +70,18 @@ function init() {
   } else {
     showLogin();
   }
+
+  // Commit any pending soft-deletes if the page is being unloaded.
+  window.addEventListener('beforeunload', flushPendingDeletes);
 }
 
 function injectDashboard() {
-  if (document.getElementById('dashboard')) return; // already in DOM
+  if (document.getElementById('dashboard')) return;
   const template = document.getElementById('dashboardTemplate');
   document.body.appendChild(template.content.cloneNode(true));
   setupDashboardListeners();
   setupFilterClassBtns();
+  applyDateInputBounds();
 }
 
 function setupLoginListeners() {
@@ -59,41 +89,53 @@ function setupLoginListeners() {
 }
 
 function setupDashboardListeners() {
-  document.getElementById('addBtn').addEventListener('click', () => openModal(null));
-  document.getElementById('refreshBtn').addEventListener('click', () => loadData(true));
+  document.getElementById('addBtn').addEventListener('click', () => openModal());
+  document.getElementById('refreshBtn').addEventListener('click', () => loadData({ skipCache: true, background: true }));
   document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+  document.getElementById('jumpTodayBtn').addEventListener('click', jumpToToday);
   document.getElementById('showPastToggle').addEventListener('change', e => {
     showPast = e.target.checked;
+    renderCurrentView();
+  });
+  document.getElementById('onlyMineToggle').addEventListener('change', e => {
+    onlyMine = e.target.checked;
     renderCurrentView();
   });
   document.getElementById('viewTable').addEventListener('click', () => setView('table'));
   document.getElementById('viewCalendar').addEventListener('click', () => setView('calendar'));
   document.getElementById('filterStart').addEventListener('change', onFilterChange);
   document.getElementById('filterEnd').addEventListener('change', onFilterChange);
+  document.getElementById('clearFilterClassesBtn').addEventListener('click', clearFilterClasses);
   document.getElementById('teacherPanelClose').addEventListener('click', closeTeacherPanel);
   document.getElementById('teacherPanelOverlay').addEventListener('click', closeTeacherPanel);
   document.getElementById('teacherPanelAdd').addEventListener('click', () => {
     const date = panelOpenDate;
     closeTeacherPanel();
-    openModal(null, date);
+    openModal({ defaultDate: date });
   });
 
-  // Column filters delegation on tbody handles action buttons, row clicks handle expand
   document.querySelector('#dataTable tbody').addEventListener('click', handleTableClick);
   ['cfDate','cfClass','cfSubject','cfDesc','cfTeacher'].forEach(id =>
     document.getElementById(id).addEventListener('input', debounce(onColFilterChange, 300))
   );
   document.getElementById('cfLegacy').addEventListener('change', onColFilterChange);
+
+  // Reflect initial state
+  setView(currentView);
 }
 
 function setupModalListeners() {
-  document.getElementById('modalClose').addEventListener('click', closeModal);
-  document.getElementById('modalCancel').addEventListener('click', closeModal);
-  document.getElementById('modalOverlay').addEventListener('click', closeModal);
+  document.getElementById('modalClose').addEventListener('click', attemptCloseModal);
+  document.getElementById('modalCancel').addEventListener('click', attemptCloseModal);
+  document.getElementById('modalOverlay').addEventListener('click', attemptCloseModal);
   document.getElementById('modalForm').addEventListener('submit', handleSave);
   document.getElementById('modalDate').addEventListener('change', scheduleConflictFetch);
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { closeModal(); closeTeacherPanel(); closeConfirm(); }
+
+  const rangeSel = document.getElementById('conflictRange');
+  rangeSel.value = localStorage.getItem(CONFLICT_RANGE_KEY) || '1';
+  rangeSel.addEventListener('change', () => {
+    localStorage.setItem(CONFLICT_RANGE_KEY, rangeSel.value);
+    scheduleConflictFetch();
   });
 }
 
@@ -102,15 +144,26 @@ function setupConfirmListeners() {
   document.getElementById('confirmOverlay').addEventListener('click', closeConfirm);
 }
 
+function applyDateInputBounds() {
+  const modalDate = document.getElementById('modalDate');
+  modalDate.min = SCHOOL_YEAR.start;
+  modalDate.max = SCHOOL_YEAR.end;
+  // Filter date inputs intentionally have no min/max so teachers can browse legacy data.
+}
+
 // ─── Auth ─────────────────────────────────────────────────────
 
 async function handleLogin(e) {
   e.preventDefault();
   const password = document.getElementById('passwordInput').value;
+  const name     = document.getElementById('loginNameInput').value.trim();
   const errEl    = document.getElementById('loginError');
   const btn      = document.getElementById('loginBtn');
 
   errEl.textContent = '';
+
+  if (!name) { errEl.textContent = 'Skriv inn navnet ditt.'; return; }
+
   btn.disabled = true;
   btn.textContent = 'Logger inn…';
 
@@ -127,6 +180,7 @@ async function handleLogin(e) {
       document.getElementById('wrongPasswordImg').hidden = data.error !== 'Feil passord';
     } else {
       document.getElementById('wrongPasswordImg').hidden = true;
+      localStorage.setItem(TEACHER_NAME_KEY, name);
       sessionStorage.setItem('vk_token', data.token);
       showDashboard();
       loadData();
@@ -140,6 +194,7 @@ async function handleLogin(e) {
 }
 
 function handleLogout() {
+  flushPendingDeletes(); // commit any deferred deletes synchronously
   sessionStorage.removeItem('vk_token');
   teacherData = [];
   showLogin();
@@ -148,7 +203,6 @@ function handleLogout() {
 // ─── Views ────────────────────────────────────────────────────
 
 function showLogin() {
-  // Remove all logged-in elements from the DOM entirely
   ['dashboard', 'teacherPanel', 'teacherPanelOverlay'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.remove();
@@ -156,6 +210,7 @@ function showLogin() {
   teacherData = [];
   document.getElementById('loginView').hidden = false;
   document.getElementById('passwordInput').value = '';
+  document.getElementById('loginNameInput').value = localStorage.getItem(TEACHER_NAME_KEY) || '';
   document.getElementById('loginError').textContent = '';
   document.getElementById('wrongPasswordImg').hidden = true;
 }
@@ -167,19 +222,26 @@ function showDashboard() {
 
 // ─── Data loading ──────────────────────────────────────────────
 
-async function loadData(force = false) {
-  if (!force) {
-    const cached = getCachedData();
-    if (cached) {
-      teacherData = cached;
-      renderCurrentView();
-      updateStatus();
-      hideOverlay();
-      return;
-    }
+async function loadData(opts = {}) {
+  const cached = getCachedData();
+
+  if (cached && !opts.skipCache) {
+    teacherData = cached;
+    renderCurrentView();
+    updateStatus();
+    hideOverlay();
+    fetchTeacherData({ background: true });
+    return;
   }
 
-  showOverlay();
+  const background = opts.background && teacherData.length > 0;
+  await fetchTeacherData({ background });
+}
+
+async function fetchTeacherData({ background = false } = {}) {
+  if (background) showBgLoading();
+  else showOverlay();
+
   try {
     const token = sessionStorage.getItem('vk_token');
     const res   = await fetch(`${SCRIPT_URL}?action=all&token=${encodeURIComponent(token)}`);
@@ -192,34 +254,75 @@ async function loadData(force = false) {
     setCachedData(teacherData);
     renderCurrentView();
     updateStatus();
-    hideOverlay();
+    clearStale();
+
+    if (background) hideBgLoading();
+    else hideOverlay();
   } catch (err) {
-    showOverlayError('Kunne ikke laste data: ' + err.message);
+    if (background) {
+      hideBgLoading();
+      scheduleStaleSignal();
+    } else {
+      showOverlayError('Kunne ikke laste data: ' + err.message);
+    }
   }
 }
 
 // ─── Filtering ─────────────────────────────────────────────────
 
 function onFilterChange() {
-  filterStart = document.getElementById('filterStart').value;
-  filterEnd   = document.getElementById('filterEnd').value;
+  const startEl = document.getElementById('filterStart');
+  const endEl   = document.getElementById('filterEnd');
+  let start = startEl.value, end = endEl.value;
+  if (start && end && start > end) {
+    [startEl.value, endEl.value] = [end, start];
+    [start, end] = [end, start];
+    showToast('Datointervallet ble byttet om');
+  }
+  filterStart = start;
+  filterEnd   = end;
   renderCurrentView();
 }
 
 function setupFilterClassBtns() {
   const container = document.getElementById('filterClassBtns');
-  CLASSES.forEach(cls => {
-    const btn = document.createElement('button');
-    btn.type        = 'button';
-    btn.className   = 'filter-class-btn';
-    btn.textContent = cls;
-    btn.addEventListener('click', () => {
-      btn.classList.toggle('active');
-      filterClasses = [...document.querySelectorAll('.filter-class-btn.active')].map(b => b.textContent);
-      renderCurrentView();
+  container.innerHTML = '';
+  CLASS_GRADES.forEach(group => {
+    const wrap = document.createElement('div');
+    wrap.className = 'class-grade-group';
+    const lbl = document.createElement('span');
+    lbl.className = 'class-grade-label';
+    lbl.textContent = group.label;
+    wrap.appendChild(lbl);
+    group.classes.forEach(cls => {
+      const btn = document.createElement('button');
+      btn.type        = 'button';
+      btn.className   = 'filter-class-btn';
+      btn.textContent = cls;
+      btn.dataset.cls = cls;
+      btn.addEventListener('click', () => {
+        btn.classList.toggle('active');
+        filterClasses = [...container.querySelectorAll('.filter-class-btn.active')].map(b => b.dataset.cls);
+        updateClearFilterClassesBtn();
+        renderCurrentView();
+      });
+      wrap.appendChild(btn);
     });
-    container.appendChild(btn);
+    container.appendChild(wrap);
   });
+  updateClearFilterClassesBtn();
+}
+
+function updateClearFilterClassesBtn() {
+  const btn = document.getElementById('clearFilterClassesBtn');
+  if (btn) btn.hidden = filterClasses.length === 0;
+}
+
+function clearFilterClasses() {
+  filterClasses = [];
+  document.querySelectorAll('#filterClassBtns .filter-class-btn').forEach(b => b.classList.remove('active'));
+  updateClearFilterClassesBtn();
+  renderCurrentView();
 }
 
 function onColFilterChange() {
@@ -234,8 +337,13 @@ function onColFilterChange() {
 
 function getFilteredData() {
   const today = toISODate(new Date());
+  const myName = (localStorage.getItem(TEACHER_NAME_KEY) || '').toLowerCase().trim();
+
   return teacherData.filter(e => {
     if (!showPast && e.date < today) return false;
+    if (onlyMine && myName) {
+      if (!(e.teacher || '').toLowerCase().includes(myName)) return false;
+    }
     if (filterClasses.length > 0) {
       const entryClasses = e.classes.toUpperCase().replace(/,/g, ' ').split(/\s+/).filter(Boolean);
       if (!filterClasses.some(fc => entryClasses.includes(fc.toUpperCase()))) return false;
@@ -295,15 +403,16 @@ function renderTable() {
   }
 
   rows.forEach(entry => {
-    // ── Main row ──────────────────────────────────────────────
     const tr = document.createElement('tr');
     tr.className = 'data-row';
     if (entry.date < today) tr.classList.add('past-row');
     if (entry.isLegacy)     tr.classList.add('legacy-row');
 
     const actionCell = entry.isLegacy
-      ? `<span class="legacy-badge">Gammelt system</span>`
+      ? `<button class="icon-btn" title="Kopier" data-id="${escapeHtml(entry.id)}" data-action="clone">&#x2398;</button>
+         <span class="legacy-badge">Gammelt system</span>`
       : `<button class="icon-btn" title="Rediger" data-id="${escapeHtml(entry.id)}" data-action="edit">&#9998;</button>
+         <button class="icon-btn" title="Kopier" data-id="${escapeHtml(entry.id)}" data-action="clone">&#x2398;</button>
          <button class="icon-btn icon-btn-danger" title="Slett" data-id="${escapeHtml(entry.id)}" data-action="delete">&#10005;</button>`;
 
     tr.innerHTML = `
@@ -315,7 +424,6 @@ function renderTable() {
       <td class="action-cell">${actionCell}</td>
     `;
 
-    // ── Expand row ────────────────────────────────────────────
     const expandTr = document.createElement('tr');
     expandTr.className = 'expand-row';
     expandTr.hidden    = true;
@@ -362,8 +470,12 @@ function handleTableClick(e) {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
   const { id, action } = btn.dataset;
-  if (action === 'edit')   openModal(id);
+  if (action === 'edit')   openModal({ id });
   if (action === 'delete') handleDelete(id);
+  if (action === 'clone') {
+    const entry = teacherData.find(x => x.id === id);
+    if (entry) openModal({ cloneFrom: entry });
+  }
 }
 
 // ─── Teacher calendar ──────────────────────────────────────────
@@ -441,6 +553,7 @@ function buildTeacherMonthCard(monthDate, byDate) {
 
         td.className = 'day';
         if (dateKey === todayKey) td.classList.add('today');
+        applySchoolDay(td, dateKey);
 
         const num = document.createElement('span');
         num.className   = 'day-num';
@@ -461,7 +574,13 @@ function buildTeacherMonthCard(monthDate, byDate) {
 
         const snapDate    = new Date(cursor);
         const snapEntries = entries.slice();
+        td.tabIndex = 0;
+        td.setAttribute('role', 'button');
+        td.setAttribute('aria-label', `${cursor.getDate()}. ${monthDate.toLocaleString('no', { month: 'long' })}, ${entries.length} vurdering${entries.length !== 1 ? 'er' : ''}`);
         td.addEventListener('click', () => openTeacherPanel(snapDate, snapEntries));
+        td.addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTeacherPanel(snapDate, snapEntries); }
+        });
       } else {
         td.className   = 'day other-month';
         td.textContent = cursor.getDate();
@@ -476,14 +595,40 @@ function buildTeacherMonthCard(monthDate, byDate) {
   return card;
 }
 
+function jumpToToday() {
+  if (currentView === 'calendar') {
+    let cell = document.querySelector('#teacherCalendar .day.today');
+    if (!cell) {
+      // Bring today into the visible range — clear filter dates and re-render.
+      filterStart = ''; filterEnd = '';
+      const fs = document.getElementById('filterStart');
+      const fe = document.getElementById('filterEnd');
+      if (fs) fs.value = ''; if (fe) fe.value = '';
+      renderCurrentView();
+      cell = document.querySelector('#teacherCalendar .day.today');
+    }
+    cell?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } else {
+    // Table view — scroll to first row dated today or after.
+    const todayISO = toISODate(new Date());
+    const rows = [...document.querySelectorAll('#dataTable tbody .data-row')];
+    const target = rows.find(r => !r.classList.contains('past-row'));
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
 // ─── Teacher day panel ─────────────────────────────────────────
 
 function openTeacherPanel(date, entries) {
+  rememberFocus();
   panelOpenDate = toISODate(date);
   document.getElementById('teacherPanelTitle').textContent = formatDateLong(date);
 
   const body = document.getElementById('teacherPanelBody');
   body.innerHTML = '';
+
+  const sch = schoolDays[toISODate(date)];
+  if (sch) body.appendChild(buildSchoolDayCard(sch));
 
   if (entries.length === 0) {
     const p = document.createElement('p');
@@ -524,75 +669,117 @@ function openTeacherPanel(date, entries) {
 
       card.appendChild(info);
 
-      if (e.isLegacy) {
-        const badge = document.createElement('span');
-        badge.className   = 'legacy-badge';
-        badge.textContent = 'Gammelt system';
-        card.appendChild(badge);
-      } else {
-        const actions = document.createElement('div');
-        actions.className = 'ac-panel-actions';
+      const actions = document.createElement('div');
+      actions.className = 'ac-panel-actions';
 
+      if (!e.isLegacy) {
         const editBtn = document.createElement('button');
         editBtn.className   = 'btn btn-sm btn-ghost';
         editBtn.textContent = 'Rediger';
-        editBtn.addEventListener('click', () => { closeTeacherPanel(); openModal(e.id); });
+        editBtn.addEventListener('click', () => { closeTeacherPanel(); openModal({ id: e.id }); });
+        actions.appendChild(editBtn);
+      }
 
+      const cloneBtn = document.createElement('button');
+      cloneBtn.className   = 'btn btn-sm btn-ghost';
+      cloneBtn.textContent = 'Kopier';
+      cloneBtn.addEventListener('click', () => { closeTeacherPanel(); openModal({ cloneFrom: e }); });
+      actions.appendChild(cloneBtn);
+
+      if (!e.isLegacy) {
         const delBtn = document.createElement('button');
         delBtn.className   = 'btn btn-sm btn-ghost-danger';
         delBtn.textContent = 'Slett';
         delBtn.addEventListener('click', () => handleDelete(e.id));
-
-        actions.appendChild(editBtn);
         actions.appendChild(delBtn);
-        card.appendChild(actions);
+      } else {
+        const badge = document.createElement('span');
+        badge.className   = 'legacy-badge';
+        badge.textContent = 'Gammelt system';
+        actions.appendChild(badge);
       }
 
+      card.appendChild(actions);
       body.appendChild(card);
     });
   }
 
   document.getElementById('teacherPanelOverlay').classList.add('open');
   document.getElementById('teacherPanel').classList.add('open');
+  setTimeout(() => document.getElementById('teacherPanelClose')?.focus(), 60);
 }
 
 function closeTeacherPanel() {
   document.getElementById('teacherPanelOverlay')?.classList.remove('open');
   document.getElementById('teacherPanel')?.classList.remove('open');
   panelOpenDate = null;
+  restoreFocus();
 }
 
 // ─── Modal ─────────────────────────────────────────────────────
 
-function openModal(id, defaultDate = null) {
-  editingId = id || null;
-  const entry = editingId ? teacherData.find(e => e.id === editingId) : null;
+function openModal(opts = {}) {
+  editingId     = opts.id || null;
+  cloneTemplate = (!editingId && opts.cloneFrom) ? opts.cloneFrom : null;
 
-  document.getElementById('modalTitle').textContent     = entry ? 'Rediger vurdering' : 'Legg til vurdering';
-  document.getElementById('modalDate').value            = entry ? entry.date : (defaultDate || '');
-  document.getElementById('modalSubject').value         = entry ? entry.subject : '';
-  document.getElementById('modalDescription').value     = entry ? (entry.description || entry.notes || '') : '';
-  document.getElementById('modalTeacher').value         = entry
-    ? (entry.teacher || '')
+  const entry = editingId ? teacherData.find(e => e.id === editingId) : null;
+  const source = entry || cloneTemplate;
+  const isEdit  = !!entry;
+  const isClone = !!cloneTemplate;
+
+  document.getElementById('modalTitle').textContent =
+    isEdit ? 'Rediger vurdering' : (isClone ? 'Kopier vurdering' : 'Legg til vurdering');
+
+  document.getElementById('modalDate').value        = isEdit ? entry.date : (opts.defaultDate || '');
+  document.getElementById('modalSubject').value     = source ? source.subject : '';
+  document.getElementById('modalDescription').value = source ? (source.description || source.notes || '') : '';
+  document.getElementById('modalTeacher').value     = isEdit
+    ? (source.teacher || '')
     : (localStorage.getItem(TEACHER_NAME_KEY) || '');
   document.getElementById('modalError').textContent = '';
 
-  const selected = entry ? entry.classes.split(' ').filter(Boolean) : [];
+  let selected;
+  if (source) selected = source.classes.split(' ').filter(Boolean);
+  else        selected = filterClasses.length ? [...filterClasses] : [];
   renderClassToggles(selected);
 
   clearConflicts();
-  if (entry || defaultDate) scheduleConflictFetch();
+  if (isEdit || opts.defaultDate || isClone) scheduleConflictFetch();
 
+  rememberFocus();
   document.getElementById('modalOverlay').classList.add('open');
   document.getElementById('modal').classList.add('open');
   document.getElementById('modalDate').focus();
+
+  modalBaseline = serializeModalState();
 }
 
-function closeModal() {
+function attemptCloseModal() {
+  if (modalBaseline !== null && serializeModalState() !== modalBaseline) {
+    showConfirm('Du har ulagrede endringer. Forkast?', () => doCloseModal());
+    return;
+  }
+  doCloseModal();
+}
+
+function doCloseModal() {
   document.getElementById('modalOverlay').classList.remove('open');
   document.getElementById('modal').classList.remove('open');
-  editingId = null;
+  editingId     = null;
+  cloneTemplate = null;
+  modalBaseline = null;
   clearTimeout(conflictTimer);
+  restoreFocus();
+}
+
+function serializeModalState() {
+  return JSON.stringify({
+    date:        document.getElementById('modalDate').value,
+    subject:     document.getElementById('modalSubject').value,
+    description: document.getElementById('modalDescription').value,
+    teacher:     document.getElementById('modalTeacher').value,
+    classes:     getSelectedClasses().slice().sort().join(',')
+  });
 }
 
 async function handleSave(e) {
@@ -601,7 +788,7 @@ async function handleSave(e) {
   const saveBtn = document.getElementById('saveBtn');
   const classes = getSelectedClasses();
 
-  if (classes.length === 0)               { errEl.textContent = 'Velg minst én klasse.'; return; }
+  if (classes.length === 0) { errEl.textContent = 'Velg minst én klasse.'; return; }
 
   const payload = {
     date:        document.getElementById('modalDate').value,
@@ -615,6 +802,10 @@ async function handleSave(e) {
   if (!payload.subject)     { errEl.textContent = 'Fag er påkrevd.'; return; }
   if (!payload.description) { errEl.textContent = 'Beskrivelse er påkrevd.'; return; }
   if (!payload.teacher)     { errEl.textContent = 'Lærer er påkrevd.'; return; }
+  if (payload.date < SCHOOL_YEAR.start || payload.date > SCHOOL_YEAR.end) {
+    errEl.textContent = `Datoen må være innenfor inneværende skoleår (${formatDisplayDate(SCHOOL_YEAR.start)} - ${formatDisplayDate(SCHOOL_YEAR.end)}).`;
+    return;
+  }
 
   if (payload.teacher) localStorage.setItem(TEACHER_NAME_KEY, payload.teacher);
 
@@ -640,12 +831,15 @@ async function handleSave(e) {
     if (editingId) {
       const idx = teacherData.findIndex(e => e.id === editingId);
       if (idx !== -1) teacherData[idx] = { ...teacherData[idx], ...payload, notes: payload.description };
+      showToast('Vurdering oppdatert');
     } else {
       teacherData.push(data);
+      showToast(cloneTemplate ? 'Kopi lagret' : 'Vurdering lagret');
     }
 
     setCachedData(teacherData);
-    closeModal();
+    modalBaseline = null; // suppress unsaved-changes prompt
+    doCloseModal();
     renderCurrentView();
   } catch {
     errEl.textContent = 'Nettverksfeil. Prøv igjen.';
@@ -655,34 +849,86 @@ async function handleSave(e) {
   }
 }
 
-// ─── Delete ────────────────────────────────────────────────────
+// ─── Soft delete with undo ─────────────────────────────────────
 
 function handleDelete(id) {
   const entry = teacherData.find(e => e.id === id);
-  const label = entry
-    ? `${formatDisplayDate(entry.date)} - ${entry.subject} (${entry.classes})`
-    : id;
+  if (!entry) return;
+  const label = `${formatDisplayDate(entry.date)} - ${entry.subject} (${entry.classes})`;
 
-  showConfirm(`Vil du slette denne vurderingen?\n\n${label}`, async () => {
-    const token = sessionStorage.getItem('vk_token');
-    try {
-      const res  = await fetch(SCRIPT_URL, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body:    new URLSearchParams({ action: 'delete', token, id })
-      });
-      const data = await res.json();
+  showConfirm(`Vil du slette denne vurderingen?\n\n${label}`, () => {
+    const idx = teacherData.findIndex(e => e.id === id);
+    if (idx === -1) return;
+    const removed = teacherData.splice(idx, 1)[0];
+    setCachedData(teacherData);
+    closeTeacherPanel();
+    renderCurrentView();
 
-      if (data.error) { showAlert('Feil ved sletting: ' + data.error); return; }
+    const timer = setTimeout(() => commitDelete(id), UNDO_DELAY);
+    pendingDeletes.set(id, { entry: removed, timer });
 
-      teacherData = teacherData.filter(e => e.id !== id);
+    showToast(`Slettet: ${entry.subject}`, {
+      actionLabel: 'Angre',
+      onAction:    () => undoDelete(id),
+      duration:    UNDO_DELAY
+    });
+  });
+}
+
+async function commitDelete(id) {
+  const pending = pendingDeletes.get(id);
+  if (!pending) return;
+  pendingDeletes.delete(id);
+
+  const token = sessionStorage.getItem('vk_token');
+  try {
+    const res  = await fetch(SCRIPT_URL, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    new URLSearchParams({ action: 'delete', token, id })
+    });
+    const data = await res.json();
+    if (data.error) {
+      teacherData.push(pending.entry);
       setCachedData(teacherData);
-      closeTeacherPanel();
       renderCurrentView();
-    } catch {
-      showAlert('Nettverksfeil. Prøv igjen.');
+      showAlert('Feil ved sletting: ' + data.error + '\nVurderingen er gjenopprettet.');
+    }
+  } catch {
+    teacherData.push(pending.entry);
+    setCachedData(teacherData);
+    renderCurrentView();
+    showAlert('Nettverksfeil under sletting. Vurderingen er gjenopprettet.');
+  }
+}
+
+function undoDelete(id) {
+  const pending = pendingDeletes.get(id);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingDeletes.delete(id);
+  teacherData.push(pending.entry);
+  setCachedData(teacherData);
+  renderCurrentView();
+}
+
+function flushPendingDeletes() {
+  if (pendingDeletes.size === 0) return;
+  const token = sessionStorage.getItem('vk_token');
+  pendingDeletes.forEach((pending, id) => {
+    clearTimeout(pending.timer);
+    if (token) {
+      try {
+        fetch(SCRIPT_URL, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body:    new URLSearchParams({ action: 'delete', token, id }),
+          keepalive: true
+        });
+      } catch {}
     }
   });
+  pendingDeletes.clear();
 }
 
 // ─── Class toggles ─────────────────────────────────────────────
@@ -690,84 +936,103 @@ function handleDelete(id) {
 function renderClassToggles(selected = []) {
   const container = document.getElementById('classToggles');
   container.innerHTML = '';
-  CLASSES.forEach(cls => {
-    const btn = document.createElement('button');
-    btn.type        = 'button';
-    btn.className   = 'class-toggle' + (selected.includes(cls) ? ' active' : '');
-    btn.textContent = cls;
-    btn.addEventListener('click', () => { btn.classList.toggle('active'); scheduleConflictFetch(); });
-    container.appendChild(btn);
+  CLASS_GRADES.forEach(group => {
+    const wrap = document.createElement('div');
+    wrap.className = 'class-grade-group';
+    const lbl = document.createElement('span');
+    lbl.className = 'class-grade-label';
+    lbl.textContent = group.label;
+    wrap.appendChild(lbl);
+    group.classes.forEach(cls => {
+      const btn = document.createElement('button');
+      btn.type        = 'button';
+      btn.className   = 'class-toggle' + (selected.includes(cls) ? ' active' : '');
+      btn.textContent = cls;
+      btn.dataset.cls = cls;
+      btn.addEventListener('click', () => { btn.classList.toggle('active'); scheduleConflictFetch(); });
+      wrap.appendChild(btn);
+    });
+    container.appendChild(wrap);
   });
 }
 
 function getSelectedClasses() {
-  return [...document.querySelectorAll('.class-toggle.active')].map(b => b.textContent);
+  return [...document.querySelectorAll('.class-toggle.active')].map(b => b.dataset.cls);
 }
 
-// ─── Conflict detection ────────────────────────────────────────
+// ─── Conflict detection (computed locally) ─────────────────────
 
 function scheduleConflictFetch() {
   clearTimeout(conflictTimer);
-  conflictTimer = setTimeout(fetchConflicts, 400);
+  conflictTimer = setTimeout(computeConflicts, 200);
 }
 
-async function fetchConflicts() {
+function computeConflicts() {
   const date    = document.getElementById('modalDate').value;
   const classes = getSelectedClasses();
   if (!date || classes.length === 0) { clearConflicts(); return; }
 
-  const token = sessionStorage.getItem('vk_token');
-  const panel = document.getElementById('conflictPanel');
-  const list  = document.getElementById('conflictList');
-  panel.hidden = false;
-  list.innerHTML = '<p class="conflict-loading">Sjekker…</p>';
+  const weeksRange = Math.max(1, Math.min(4, parseInt(document.getElementById('conflictRange').value, 10) || 1));
 
-  try {
-    const res    = await fetch(`${SCRIPT_URL}?action=conflicts&token=${encodeURIComponent(token)}&date=${date}&classes=${encodeURIComponent(classes.join(' '))}`);
-    const data   = await res.json();
-    const filtered = Array.isArray(data) ? data.filter(e => e.id !== editingId) : [];
-    renderConflicts(filtered, date);
-  } catch {
-    list.innerHTML = '<p class="conflict-loading">Kunne ikke laste konflikter.</p>';
-  }
+  const center = new Date(date);
+  const dow    = center.getDay() || 7;
+  const centerMonday = new Date(center);
+  centerMonday.setDate(center.getDate() - dow + 1);
+
+  const rangeStart = new Date(centerMonday); rangeStart.setDate(centerMonday.getDate() - 7 * weeksRange);
+  const rangeEnd   = new Date(centerMonday); rangeEnd.setDate(centerMonday.getDate() + 7 * (weeksRange + 1));
+  const startISO = toISODate(rangeStart);
+  const endISO   = toISODate(rangeEnd);
+
+  const upperClasses = classes.map(c => c.toUpperCase());
+
+  const matches = teacherData.filter(e => {
+    if (e.id === editingId) return false;
+    if (e.date < startISO || e.date >= endISO) return false;
+    const entryClasses = e.classes.toUpperCase().replace(/,/g, ' ').split(/\s+/).filter(Boolean);
+    return upperClasses.some(c => entryClasses.includes(c));
+  });
+
+  renderConflicts(matches, centerMonday, weeksRange);
 }
 
-function renderConflicts(entries, dateStr) {
+function renderConflicts(entries, centerMonday, weeksRange) {
   const list    = document.getElementById('conflictList');
   const heading = document.getElementById('conflictHeading');
-  const count   = entries.length;
+  const panel   = document.getElementById('conflictPanel');
+  panel.hidden = false;
 
+  const count = entries.length;
+  const span = weeksRange === 1 ? 'denne, forrige og neste uke' : `±${weeksRange} uker`;
   heading.textContent = count === 0
-    ? 'Vurderinger denne, forrige og neste uke'
-    : `${count} vurdering${count !== 1 ? 'er' : ''} denne, forrige og neste uke`;
+    ? `Vurderinger ${span}`
+    : `${count} vurdering${count !== 1 ? 'er' : ''} ${span}`;
+
+  list.innerHTML = '';
 
   if (count === 0) {
     list.innerHTML = '<p class="no-conflicts">Ingen andre vurderinger i dette tidsrommet.</p>';
     return;
   }
 
-  // Monday of the week containing the selected date
-  const center = new Date(dateStr);
-  const dow    = center.getDay() || 7;
-  const monday = new Date(center);
-  monday.setDate(center.getDate() - dow + 1);
+  for (let i = -weeksRange; i <= weeksRange; i++) {
+    const monday = new Date(centerMonday);
+    monday.setDate(centerMonday.getDate() + 7 * i);
+    const nextMonday = new Date(monday);
+    nextMonday.setDate(monday.getDate() + 7);
+    const startISO = toISODate(monday);
+    const endISO   = toISODate(nextMonday);
 
-  const prevMonday = new Date(monday); prevMonday.setDate(monday.getDate() - 7);
-  const nextMonday = new Date(monday); nextMonday.setDate(monday.getDate() + 7);
+    const weekEntries = entries.filter(e => e.date >= startISO && e.date < endISO)
+                              .sort((a, b) => a.date.localeCompare(b.date));
+    if (weekEntries.length === 0) continue;
 
-  const prevMon = toISODate(prevMonday);
-  const curMon  = toISODate(monday);
-  const nextMon = toISODate(nextMonday);
+    const isCurrent = i === 0;
+    const label = isCurrent
+      ? `Valgt uke - uke ${getWeekNumber(monday)}`
+      : `Uke ${getWeekNumber(monday)}`;
 
-  const prevWeek = entries.filter(e => e.date >= prevMon && e.date < curMon);
-  const currWeek = entries.filter(e => e.date >= curMon  && e.date < nextMon);
-  const nextWeek = entries.filter(e => e.date >= nextMon);
-
-  list.innerHTML = '';
-
-  function renderSection(sectionEntries, label, isCurrent) {
-    if (sectionEntries.length === 0) return;
-    const section     = document.createElement('div');
+    const section = document.createElement('div');
     section.className = 'conflict-week' + (isCurrent ? ' conflict-week-current' : '');
 
     const weekLabel       = document.createElement('p');
@@ -775,7 +1040,7 @@ function renderConflicts(entries, dateStr) {
     weekLabel.textContent = label;
     section.appendChild(weekLabel);
 
-    sectionEntries.forEach(e => {
+    weekEntries.forEach(e => {
       const div     = document.createElement('div');
       div.className = 'conflict-item';
       div.innerHTML = `
@@ -788,10 +1053,6 @@ function renderConflicts(entries, dateStr) {
 
     list.appendChild(section);
   }
-
-  renderSection(prevWeek, `Uke ${getWeekNumber(prevMonday)}`, false);
-  renderSection(currWeek, `Valgt uke - uke ${getWeekNumber(monday)}`, true);
-  renderSection(nextWeek, `Uke ${getWeekNumber(nextMonday)}`, false);
 }
 
 function clearConflicts() {
@@ -827,7 +1088,7 @@ function closeConfirm() {
   document.getElementById('confirmOk').onclick     = null;
 }
 
-// ─── Overlay ───────────────────────────────────────────────────
+// ─── Overlay & background-loading indicator ────────────────────
 
 function showOverlay() {
   const overlay = document.getElementById('overlay');
@@ -850,10 +1111,113 @@ function showOverlayError(msg) {
     const btn = document.createElement('button');
     btn.className   = 'btn btn-primary overlay-retry';
     btn.textContent = 'Prøv igjen';
-    btn.addEventListener('click', () => { hideOverlay(); loadData(true); });
+    btn.addEventListener('click', () => { hideOverlay(); loadData({ skipCache: true }); });
     overlay.querySelector('.overlay-inner').appendChild(btn);
   }
   overlay.classList.add('active');
+}
+
+function showBgLoading() { document.getElementById('bgLoading')?.classList.add('active'); }
+function hideBgLoading() { document.getElementById('bgLoading')?.classList.remove('active'); }
+
+// ─── Stale data signal ─────────────────────────────────────────
+
+function scheduleStaleSignal() {
+  if (staleTimer) return;
+  staleTimer = setTimeout(() => {
+    document.getElementById('lastUpdated')?.classList.add('stale');
+    staleTimer = null;
+  }, STALE_DELAY);
+}
+
+function clearStale() {
+  if (staleTimer) { clearTimeout(staleTimer); staleTimer = null; }
+  document.getElementById('lastUpdated')?.classList.remove('stale');
+}
+
+// ─── Toast ─────────────────────────────────────────────────────
+
+function showToast(message, opts = {}) {
+  const toast = document.getElementById('toast');
+  toast.querySelector('.toast-msg').textContent = message;
+  const actionBtn = toast.querySelector('.toast-action');
+  if (opts.actionLabel) {
+    actionBtn.textContent = opts.actionLabel;
+    actionBtn.hidden = false;
+    actionBtn.onclick = () => { opts.onAction?.(); hideToast(); };
+  } else {
+    actionBtn.hidden = true;
+    actionBtn.onclick = null;
+  }
+  toast.hidden = false;
+  requestAnimationFrame(() => toast.classList.add('show'));
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(hideToast, opts.duration ?? 3000);
+}
+
+function hideToast() {
+  const toast = document.getElementById('toast');
+  toast.classList.remove('show');
+  clearTimeout(toast._timer);
+  setTimeout(() => { toast.hidden = true; }, 250);
+}
+
+// ─── Focus management & shortcuts ──────────────────────────────
+
+function rememberFocus() { lastFocusedEl = document.activeElement; }
+function restoreFocus() {
+  if (lastFocusedEl && typeof lastFocusedEl.focus === 'function') {
+    try { lastFocusedEl.focus(); } catch {}
+  }
+  lastFocusedEl = null;
+}
+
+function trapFocus(container, e) {
+  const focusables = [...container.querySelectorAll(
+    'button:not([disabled]):not([hidden]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )].filter(el => el.offsetParent !== null);
+  if (focusables.length === 0) return;
+  const first = focusables[0], last = focusables[focusables.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+}
+
+function setupGlobalShortcuts() {
+  document.addEventListener('keydown', e => {
+    const modal     = document.getElementById('modal');
+    const confirmEl = document.getElementById('confirmDialog');
+    const panel     = document.getElementById('teacherPanel');
+
+    if (e.key === 'Escape') {
+      if (modal?.classList.contains('open'))     { attemptCloseModal(); return; }
+      if (confirmEl?.classList.contains('open')) { closeConfirm(); return; }
+      if (panel?.classList.contains('open'))     { closeTeacherPanel(); return; }
+      return;
+    }
+
+    if (e.key === 'Tab') {
+      if (modal?.classList.contains('open'))     { trapFocus(modal, e);     return; }
+      if (confirmEl?.classList.contains('open')) { trapFocus(confirmEl, e); return; }
+      if (panel?.classList.contains('open'))     { trapFocus(panel, e);     return; }
+    }
+
+    // Letter shortcuts: only when not typing into a field, and no modal/dialog is open.
+    if (e.target.matches('input, textarea, select, [contenteditable="true"]')) return;
+    if (modal?.classList.contains('open')) return;
+    if (confirmEl?.classList.contains('open')) return;
+
+    if (!sessionStorage.getItem('vk_token')) return; // not logged in
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    const k = e.key.toLowerCase();
+    if (k === 'n') { e.preventDefault(); openModal(); }
+    else if (k === 't') { e.preventDefault(); setView('table'); }
+    else if (k === 'k') { e.preventDefault(); setView('calendar'); }
+    else if (k === '/') {
+      e.preventDefault();
+      document.querySelector('#filterClassBtns .filter-class-btn')?.focus();
+    }
+  });
 }
 
 // ─── Cache ─────────────────────────────────────────────────────
@@ -877,6 +1241,15 @@ function updateStatus() {
 }
 
 // ─── Utilities ─────────────────────────────────────────────────
+
+function getSchoolYearBounds(today) {
+  const y = today.getFullYear();
+  const m = today.getMonth();
+  const d = today.getDate();
+  const pastJun21 = m > 5 || (m === 5 && d > 21);
+  if (pastJun21) return { start: `${y}-08-15`,   end: `${y + 1}-06-21` };
+  return                  { start: `${y - 1}-08-15`, end: `${y}-06-21` };
+}
 
 function toISODate(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -911,4 +1284,131 @@ function escapeHtml(s) {
 function debounce(fn, ms) {
   let t;
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+// ─── School calendar (Nes kommune iCal) ───────────────────────
+
+const SCHOOL_TYPE_LABEL = {
+  off:      'Skolefri',
+  planning: 'Planleggingsdag',
+  marker:   'Skoledag-markering'
+};
+
+function buildSchoolDayCard(sch) {
+  const card = document.createElement('div');
+  card.className = 'school-day-card school-day-' + sch.type;
+  const label = document.createElement('div');
+  label.className   = 'school-day-label';
+  label.textContent = SCHOOL_TYPE_LABEL[sch.type] || sch.type;
+  card.appendChild(label);
+  sch.summaries.forEach(s => {
+    const line = document.createElement('div');
+    line.className   = 'school-day-summary';
+    line.textContent = s;
+    card.appendChild(line);
+  });
+  return card;
+}
+
+function applySchoolDay(td, dateKey) {
+  const sch = schoolDays[dateKey];
+  if (!sch) return;
+  td.classList.add('school-' + sch.type);
+  if (sch.summaries.length) td.title = sch.summaries.join(', ');
+  if (sch.type === 'planning') {
+    const badge = document.createElement('span');
+    badge.className = 'school-badge';
+    badge.textContent = 'P';
+    td.appendChild(badge);
+  }
+}
+
+function classifySchoolEvent(summary) {
+  const s = (summary || '').toLowerCase();
+  if (!s || s.includes('sfo')) return null;
+  if (s.includes('planleggingsdag')) return 'planning';
+  if (s.includes('første skoledag') || s.includes('siste skoledag')) return 'marker';
+  if (
+    s.includes('ferie') ||
+    s.includes('himmelfartsdag') ||
+    s.includes('pinsedag') ||
+    s.includes('grunnlovsdag') ||
+    s.includes('1.mai') || s.includes('1. mai') ||
+    s.includes('skjærtorsdag') || s.includes('langfredag') || s.includes('påskedag') ||
+    s.includes('julaften') || s.includes('nyttårsaften') ||
+    s.includes('juledag') || s.includes('nyttårsdag')
+  ) return 'off';
+  return null;
+}
+
+function parseICS(text) {
+  const unfolded = text.replace(/\r?\n[ \t]/g, '');
+  const lines = unfolded.split(/\r?\n/);
+  const events = [];
+  let current = null;
+  for (const line of lines) {
+    if (line === 'BEGIN:VEVENT') { current = {}; continue; }
+    if (line === 'END:VEVENT')   { if (current) events.push(current); current = null; continue; }
+    if (!current) continue;
+    const m = line.match(/^([A-Z]+)(?:;[^:]*)?:(.*)$/);
+    if (!m) continue;
+    const [, key, val] = m;
+    if (key === 'DTSTART')      current.dtstart = val.trim();
+    else if (key === 'SUMMARY') current.summary = unescapeICS(val);
+  }
+  return events
+    .map(e => ({ date: icsDateToISO(e.dtstart), summary: e.summary || '' }))
+    .filter(e => e.date);
+}
+
+function icsDateToISO(s) {
+  if (!s) return null;
+  const m = s.match(/^(\d{4})(\d{2})(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+}
+
+function unescapeICS(s) {
+  return s.replace(/\\n/gi, '\n').replace(/\\,/g, ',').replace(/\\;/g, ';').replace(/\\\\/g, '\\');
+}
+
+function buildSchoolDayMap(events) {
+  const priority = { off: 3, planning: 2, marker: 1 };
+  const out = {};
+  for (const e of events) {
+    const type = classifySchoolEvent(e.summary);
+    if (!type) continue;
+    const existing = out[e.date];
+    if (!existing) {
+      out[e.date] = { type, summaries: [e.summary] };
+    } else {
+      if (priority[type] > priority[existing.type]) existing.type = type;
+      if (!existing.summaries.includes(e.summary)) existing.summaries.push(e.summary);
+    }
+  }
+  return out;
+}
+
+function loadCachedSchoolDays() {
+  const ts = localStorage.getItem(SCHOOL_CAL_TS_KEY);
+  if (!ts || Date.now() - Number(ts) > SCHOOL_CAL_TTL) return null;
+  try { return JSON.parse(localStorage.getItem(SCHOOL_CAL_KEY)); } catch { return null; }
+}
+
+async function loadSchoolCalendar() {
+  if (Object.keys(schoolDays).length > 0 && loadCachedSchoolDays()) return;
+  try {
+    const res = await fetch(SCHOOL_CAL_URL);
+    if (!res.ok) return;
+    const text = await res.text();
+    const events = parseICS(text);
+    if (events.length === 0) return;
+    schoolDays = buildSchoolDayMap(events);
+    localStorage.setItem(SCHOOL_CAL_KEY,    JSON.stringify(schoolDays));
+    localStorage.setItem(SCHOOL_CAL_TS_KEY, String(Date.now()));
+    if (currentView === 'calendar' && document.getElementById('teacherCalendar')) {
+      renderTeacherCalendar();
+    }
+  } catch {
+    // Silent — keep whatever was previously cached.
+  }
 }

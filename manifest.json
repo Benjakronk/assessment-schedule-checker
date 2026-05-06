@@ -1,0 +1,14 @@
+{
+  "name": "Vurderingskalender — Runni ungdomsskole",
+  "short_name": "Vurderinger",
+  "description": "Oversikt over vurderinger for elever og lærere ved Runni ungdomsskole.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f1f5f9",
+  "theme_color": "#2563eb",
+  "lang": "no",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

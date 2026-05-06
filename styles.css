@@ -124,8 +124,54 @@ body {
   display: flex; align-items: center; flex-wrap: wrap; gap: 12px;
   margin-bottom: 24px;
 }
-.control-search { flex: 1 1 180px; }
-.control-search .input { width: 100%; }
+.control-classes {
+  display: flex; align-items: center; gap: 10px;
+  flex: 1 1 100%;
+}
+.control-label {
+  font-size: 13px; color: var(--text-muted); font-weight: 500;
+  flex-shrink: 0;
+}
+.class-filter-btns { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+.class-grade-group {
+  display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center;
+}
+.class-grade-label {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--text-muted);
+  margin-right: 2px;
+}
+.class-filter-btn {
+  padding: 5px 11px;
+  font-family: var(--font); font-size: 13px; font-weight: 500;
+  border: 1px solid var(--border); border-radius: 16px;
+  background: var(--surface); color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+.btn-tiny {
+  padding: 4px 10px; font-size: 12px;
+}
+.class-filter-btn:hover { border-color: var(--primary); color: var(--primary); }
+.class-filter-btn.active {
+  background: var(--primary-light); color: var(--primary);
+  border-color: var(--primary); font-weight: 600;
+}
+.bg-loading {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-muted);
+  opacity: 0;
+  transition: opacity var(--transition);
+  pointer-events: none;
+}
+.bg-loading.active { opacity: 1; }
+.mini-spinner {
+  width: 14px; height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
 .control-dates {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
 }
@@ -332,9 +378,15 @@ body {
 }
 .class-modal-title { font-size: 18px; font-weight: 700; color: var(--text); }
 
+.class-modal-hint {
+  font-size: 13px; color: var(--text-muted); margin-bottom: 16px;
+}
 .class-modal-grid {
-  display: flex; flex-wrap: wrap; gap: 8px;
+  display: flex; flex-direction: column; gap: 12px;
   margin-bottom: 24px;
+}
+.class-modal-group {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
 }
 .class-modal-btn {
   padding: 8px 14px;
@@ -358,15 +410,102 @@ body {
 .last-updated {
   text-align: right; font-size: 12px;
   color: var(--text-muted); font-style: italic;
+  transition: color var(--transition);
 }
+.last-updated.stale { color: var(--danger); }
+.last-updated.stale::after {
+  content: ' — kunne ikke oppdatere';
+  font-style: italic;
+}
+
+/* ── Toast ─────────────────────────────────────────────────── */
+.toast {
+  position: fixed; bottom: 24px; left: 50%;
+  transform: translateX(-50%) translateY(140%);
+  background: var(--text); color: #fff;
+  padding: 12px 18px; border-radius: 8px;
+  display: inline-flex; align-items: center; gap: 14px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.2);
+  z-index: 300; opacity: 0;
+  transition: opacity var(--transition), transform var(--transition);
+  max-width: 90vw; font-size: 14px;
+}
+.toast.show {
+  opacity: 1; transform: translateX(-50%) translateY(0);
+}
+.toast-action {
+  background: none; border: none; color: #93c5fd;
+  font-weight: 600; font-size: 14px; cursor: pointer;
+  padding: 2px 4px;
+}
+.toast-action:hover { color: #bfdbfe; }
+
+/* Day cells: keyboard focus ring */
+.day:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+/* ── School calendar markers ──────────────────────────────── */
+/* School fills always override has-assessments tint and hover state. */
+.day.school-off,
+.day.school-off.has-assessments              { background: #fef2f2; cursor: pointer; }
+.day.school-off:hover,
+.day.school-off.has-assessments:hover        { background: #fee2e2; }
+.day.school-off .day-num,
+.day.school-off.has-assessments:hover .day-num { color: #b91c1c; }
+
+.day.school-planning,
+.day.school-planning.has-assessments         { background: #fef3c7; cursor: pointer; }
+.day.school-planning:hover,
+.day.school-planning.has-assessments:hover   { background: #fde68a; }
+.day.school-planning.has-assessments:hover .day-num { color: var(--text); }
+
+.day.school-marker,
+.day.school-marker.has-assessments           { background: #dcfce7; box-shadow: inset 0 3px 0 #16a34a; cursor: pointer; }
+.day.school-marker:hover,
+.day.school-marker.has-assessments:hover     { background: #bbf7d0; }
+.day.school-marker.has-assessments:hover .day-num { color: var(--text); }
+.school-badge {
+  position: absolute; top: 4px; right: 4px;
+  background: #d97706; color: #fff;
+  font-size: 9px; font-weight: 700;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  line-height: 1;
+}
+/* Today still wins visually */
+.day.today.school-off,
+.day.today.school-planning {
+  background: var(--today-bg);
+}
+
+/* School-day info card (in detail panel) */
+.school-day-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 4px;
+  border-left: 4px solid #94a3b8;
+}
+.school-day-card.school-day-off      { border-left-color: #dc2626; background: #fef2f2; }
+.school-day-card.school-day-planning { border-left-color: #d97706; background: #fef3c7; }
+.school-day-card.school-day-marker   { border-left-color: #16a34a; background: #f0fdf4; }
+.school-day-label {
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.school-day-summary { font-size: 14px; font-weight: 600; color: var(--text); }
 
 /* ── Responsive ────────────────────────────────────────────── */
 @media (max-width: 640px) {
   .site-title { font-size: 20px; }
 
   .controls { gap: 8px; }
-  .control-search { flex: 1 1 100%; }
   .control-dates { gap: 6px; }
+  .class-filter-btn { padding: 4px 9px; font-size: 12px; }
   .input-date { width: 130px; }
 
   .day { height: 44px; padding: 4px 2px 6px; }

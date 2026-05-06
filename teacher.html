@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Runni ungdomsskole: Vurderingskalender</title>
   <link rel="stylesheet" href="teacher.css">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <meta name="theme-color" content="#2563eb">
 </head>
 <body>
 
@@ -45,7 +48,18 @@
         <input type="text" id="modalTeacher" class="input" placeholder="Ditt navn" required>
       </div>
       <div id="conflictPanel" class="conflict-panel" hidden>
-        <p id="conflictHeading" class="conflict-heading">Vurderinger denne, forrige og neste uke</p>
+        <div class="conflict-panel-header">
+          <p id="conflictHeading" class="conflict-heading">Vurderinger i nærheten</p>
+          <label class="conflict-range-label">
+            Sjekk:
+            <select id="conflictRange" class="col-filter conflict-range-select">
+              <option value="1">±1 uke</option>
+              <option value="2">±2 uker</option>
+              <option value="3">±3 uker</option>
+              <option value="4">±4 uker</option>
+            </select>
+          </label>
+        </div>
         <div id="conflictList" class="conflict-list"></div>
       </div>
       <p id="modalError" class="form-error" aria-live="polite"></p>
@@ -72,6 +86,10 @@
       <h1 class="login-title">Vurderingskalender</h1>
       <p class="login-subtitle">Runni ungdomsskole</p>
       <form id="loginForm" novalidate>
+        <div class="field">
+          <label for="loginNameInput" class="field-label">Ditt navn</label>
+          <input type="text" id="loginNameInput" class="input" autocomplete="name" placeholder="f.eks. Kari Nordmann" required>
+        </div>
         <div class="field">
           <label for="passwordInput" class="field-label">Passord</label>
           <input type="password" id="passwordInput" class="input" autocomplete="current-password" required>
@@ -107,6 +125,10 @@
           <p class="site-subtitle">Runni ungdomsskole</p>
         </div>
         <div class="header-right">
+          <span id="bgLoading" class="bg-loading" role="status" aria-live="polite">
+            <span class="mini-spinner"></span>
+            <span>Oppdaterer…</span>
+          </span>
           <button id="refreshBtn" class="btn btn-ghost" title="Hent ferske data fra server">&#8635; Oppdater</button>
           <button id="logoutBtn" class="btn btn-ghost">Logg ut</button>
         </div>
@@ -116,12 +138,17 @@
         <div class="toolbar">
           <button id="addBtn" class="btn btn-primary">+ Legg til vurdering</button>
           <div class="view-toggle-group" role="group" aria-label="Visningsvalg">
-            <button id="viewTable" class="view-toggle-btn active">Tabell</button>
-            <button id="viewCalendar" class="view-toggle-btn">Kalender</button>
+            <button id="viewTable" class="view-toggle-btn">Tabell</button>
+            <button id="viewCalendar" class="view-toggle-btn active">Kalender</button>
           </div>
+          <button id="jumpTodayBtn" class="btn btn-ghost btn-sm" title="Bla til i dag">I dag</button>
           <label class="toggle-label">
             <input type="checkbox" id="showPastToggle">
             Vis tidligere
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" id="onlyMineToggle">
+            Vis bare mine
           </label>
         </div>
 
@@ -134,11 +161,12 @@
           <div class="filter-section filter-section-classes">
             <span class="filter-section-label">Klasse</span>
             <div id="filterClassBtns" class="filter-class-btns"></div>
+            <button id="clearFilterClassesBtn" class="btn btn-ghost btn-tiny" hidden>Tøm</button>
           </div>
         </div>
 
         <!-- Table view -->
-        <div id="tableView">
+        <div id="tableView" hidden>
           <div class="table-wrap">
             <table id="dataTable" class="data-table">
               <colgroup>
@@ -179,7 +207,7 @@
         </div>
 
         <!-- Calendar view -->
-        <div id="calendarView" hidden>
+        <div id="calendarView">
           <div id="teacherCalendar" class="calendar"></div>
         </div>
       </main>
@@ -190,6 +218,12 @@
     </div>
 
   </template>
+
+  <!-- Toast (for save/delete feedback, undo, etc.) -->
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden>
+    <span class="toast-msg"></span>
+    <button type="button" class="toast-action" hidden></button>
+  </div>
 
   <script src="teacher.js"></script>
 </body>
