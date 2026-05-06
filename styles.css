@@ -21,14 +21,19 @@
 /* ── Reset / base ──────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+html, body { height: 100%; }
 body {
   font-family: var(--font);
   font-size: 15px;
   line-height: 1.5;
   color: var(--text);
   background: var(--bg);
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden; /* page is fixed height; only the calendar scrolls */
 }
+
+body.scroll-locked { overflow: hidden; }
 
 .sr-only {
   position: absolute; width: 1px; height: 1px;
@@ -76,13 +81,14 @@ body {
 .btn-primary {
   background: var(--primary); color: #fff; border-color: var(--primary);
 }
-.btn-primary:hover { background: #1d4ed8; border-color: #1d4ed8; }
-
 .btn-ghost {
   background: var(--surface); color: var(--text-muted);
   border-color: var(--border);
 }
-.btn-ghost:hover { background: var(--bg); color: var(--text); }
+@media (hover: hover) {
+  .btn-primary:hover { background: #1d4ed8; border-color: #1d4ed8; }
+  .btn-ghost:hover   { background: var(--bg); color: var(--text); }
+}
 
 /* ── Inputs ────────────────────────────────────────────────── */
 .input {
@@ -103,14 +109,25 @@ body {
 .page {
   max-width: 960px;
   margin: 0 auto;
-  padding: 0 16px 48px;
+  padding: 0 16px;
+  height: 100vh;
+  height: 100dvh;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+.main {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  overflow: hidden;
 }
 
 /* ── Site header ───────────────────────────────────────────── */
 .site-header {
-  padding: 32px 0 24px;
+  padding: 24px 0 16px;
   border-bottom: 1px solid var(--border);
-  margin-bottom: 24px;
+  margin-bottom: 16px;
+  flex-shrink: 0;
 }
 .site-header-inner { text-align: center; }
 .site-title {
@@ -122,12 +139,20 @@ body {
 /* ── Controls bar ──────────────────────────────────────────── */
 .controls {
   display: flex; align-items: center; flex-wrap: wrap; gap: 12px;
-  margin-bottom: 24px;
+  margin-bottom: 16px;
+  flex-shrink: 0;
 }
-.control-classes {
-  display: flex; align-items: center; gap: 10px;
-  flex: 1 1 100%;
-}
+/* Desktop: the wrapper layers (controls-body, control-section, section-body, controls-actions)
+   should disappear so their children participate in the parent flex layout exactly as before. */
+.controls-body { display: contents; }
+.control-section { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.control-section[data-section="classes"] { flex: 1 1 100%; }
+.section-body { display: contents; }
+.controls-actions { display: contents; }
+
+/* Hide mobile-only collapse UI on desktop */
+.controls-quickbar, .section-toggle { display: none; }
+
 .control-label {
   font-size: 13px; color: var(--text-muted); font-weight: 500;
   flex-shrink: 0;
@@ -152,7 +177,9 @@ body {
 .btn-tiny {
   padding: 4px 10px; font-size: 12px;
 }
-.class-filter-btn:hover { border-color: var(--primary); color: var(--primary); }
+@media (hover: hover) {
+  .class-filter-btn:hover { border-color: var(--primary); color: var(--primary); }
+}
 .class-filter-btn.active {
   background: var(--primary-light); color: var(--primary);
   border-color: var(--primary); font-weight: 600;
@@ -181,7 +208,12 @@ body {
 }
 
 /* ── Calendar ──────────────────────────────────────────────── */
-.calendar { display: flex; flex-direction: column; gap: 24px; }
+.calendar {
+  display: flex; flex-direction: column; gap: 24px;
+  flex: 1; min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
 
 .empty-state {
   text-align: center; color: var(--text-muted);
@@ -194,15 +226,33 @@ body {
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-card);
   overflow: hidden;
+  flex-shrink: 0; /* don't compress to fit; let .calendar scroll instead */
 }
 
 .month-title {
   font-size: 15px; font-weight: 600;
-  padding: 14px 18px 12px;
+  padding: 10px 12px 10px 18px;
   border-bottom: 1px solid var(--border);
   color: var(--text);
   border-left: 4px solid var(--primary);
+  display: flex; align-items: center; gap: 8px;
 }
+.month-name { flex: 1; min-width: 0; }
+.month-nav-group { display: inline-flex; gap: 4px; flex-shrink: 0; }
+.month-nav {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px;
+  background: none; border: 1px solid var(--border);
+  border-radius: 4px; cursor: pointer;
+  font-size: 18px; line-height: 1;
+  color: var(--text-muted); font-family: var(--font);
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+@media (hover: hover) {
+  .month-nav:hover { background: var(--bg); color: var(--primary); border-color: var(--primary); }
+}
+.month-card:first-of-type .month-nav-prev,
+.month-card:last-of-type .month-nav-next { visibility: hidden; }
 
 /* ── Calendar table ────────────────────────────────────────── */
 .cal-table {
@@ -279,10 +329,10 @@ body {
 .day.has-assessments {
   cursor: pointer;
 }
-.day.has-assessments:hover {
-  background: var(--primary-light);
+@media (hover: hover) {
+  .day.has-assessments:hover { background: var(--primary-light); }
+  .day.has-assessments:hover .day-num { color: var(--primary); }
 }
-.day.has-assessments:hover .day-num { color: var(--primary); }
 
 /* ── Assessment dots ───────────────────────────────────────── */
 .dots {
@@ -323,7 +373,9 @@ body {
   font-size: 22px; line-height: 1; color: var(--text-muted);
   padding: 4px 8px; border-radius: 4px;
 }
-.panel-close:hover { background: var(--bg); color: var(--text); }
+@media (hover: hover) {
+  .panel-close:hover { background: var(--bg); color: var(--text); }
+}
 
 .panel-title {
   font-size: 15px; font-weight: 600;
@@ -399,7 +451,9 @@ body {
   cursor: pointer;
   transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
-.class-modal-btn:hover    { border-color: var(--primary); color: var(--primary); }
+@media (hover: hover) {
+  .class-modal-btn:hover { border-color: var(--primary); color: var(--primary); }
+}
 .class-modal-btn.active   {
   background: var(--primary-light); color: var(--primary);
   border-color: var(--primary); font-weight: 600;
@@ -409,7 +463,7 @@ body {
 }
 
 /* ── Footer ────────────────────────────────────────────────── */
-.site-footer { margin-top: 32px; }
+.site-footer { padding: 6px 0; flex-shrink: 0; }
 .last-updated {
   text-align: right; font-size: 12px;
   color: var(--text-muted); font-style: italic;
@@ -441,7 +495,9 @@ body {
   font-weight: 600; font-size: 14px; cursor: pointer;
   padding: 2px 4px;
 }
-.toast-action:hover { color: #bfdbfe; }
+@media (hover: hover) {
+  .toast-action:hover { color: #bfdbfe; }
+}
 
 /* Day cells: keyboard focus ring */
 .day:focus-visible {
@@ -453,22 +509,22 @@ body {
 /* School fills always override has-assessments tint and hover state. */
 .day.school-off,
 .day.school-off.has-assessments              { background: #fef2f2; cursor: pointer; }
-.day.school-off:hover,
-.day.school-off.has-assessments:hover        { background: #fee2e2; }
-.day.school-off .day-num,
-.day.school-off.has-assessments:hover .day-num { color: #b91c1c; }
-
+.day.school-off .day-num                     { color: #b91c1c; }
 .day.school-planning,
 .day.school-planning.has-assessments         { background: #fef3c7; cursor: pointer; }
-.day.school-planning:hover,
-.day.school-planning.has-assessments:hover   { background: #fde68a; }
-.day.school-planning.has-assessments:hover .day-num { color: var(--text); }
-
 .day.school-marker,
 .day.school-marker.has-assessments           { background: #dcfce7; box-shadow: inset 0 3px 0 #16a34a; cursor: pointer; }
-.day.school-marker:hover,
-.day.school-marker.has-assessments:hover     { background: #bbf7d0; }
-.day.school-marker.has-assessments:hover .day-num { color: var(--text); }
+@media (hover: hover) {
+  .day.school-off:hover,
+  .day.school-off.has-assessments:hover        { background: #fee2e2; }
+  .day.school-off.has-assessments:hover .day-num { color: #b91c1c; }
+  .day.school-planning:hover,
+  .day.school-planning.has-assessments:hover   { background: #fde68a; }
+  .day.school-planning.has-assessments:hover .day-num { color: var(--text); }
+  .day.school-marker:hover,
+  .day.school-marker.has-assessments:hover     { background: #bbf7d0; }
+  .day.school-marker.has-assessments:hover .day-num { color: var(--text); }
+}
 .school-badge {
   position: absolute; top: 4px; right: 4px;
   background: #d97706; color: #fff;
@@ -502,20 +558,136 @@ body {
 }
 .school-day-summary { font-size: 14px; font-weight: 600; color: var(--text); }
 
-/* ── Responsive ────────────────────────────────────────────── */
+/* ── Mobile ────────────────────────────────────────────────── */
 @media (max-width: 640px) {
   .site-title { font-size: 20px; }
+  .site-header { padding: 14px 0 10px; margin-bottom: 10px; }
 
-  .controls { gap: 8px; }
+  .controls {
+    gap: 0;
+    flex-direction: column; align-items: stretch;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+
+  /* Outer toolbar collapse */
+  .controls-quickbar { display: flex; }
+  .controls-body { display: none; }
+  .controls.toolbar-open .controls-body {
+    display: flex; flex-direction: column;
+    border-top: 1px solid var(--border);
+  }
+
+  .toolbar-toggle {
+    display: inline-flex; width: 100%; align-items: center;
+    gap: 8px; padding: 12px 14px;
+    background: none; border: none;
+    font-family: var(--font); font-size: 14px;
+    color: var(--text); text-align: left; cursor: pointer;
+    min-height: 44px;
+  }
+  .toolbar-toggle-label { font-weight: 600; }
+  .toolbar-summary {
+    flex: 1; min-width: 0;
+    color: var(--text-muted); font-size: 13px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .toolbar-toggle .chevron,
+  .section-toggle .chevron {
+    color: var(--text-muted);
+    transition: transform var(--transition);
+    font-size: 12px;
+  }
+  .controls.toolbar-open .toolbar-toggle .chevron { transform: rotate(180deg); }
+
+  /* Sections inside expanded toolbar */
+  .control-section { flex-direction: column; align-items: stretch; gap: 0; flex: none; }
+  .control-section + .control-section,
+  .controls-actions { border-top: 1px solid var(--border); }
+  .control-label-desktop { display: none; }
+
+  .section-toggle {
+    display: inline-flex; width: 100%; align-items: center;
+    gap: 8px; padding: 11px 14px;
+    background: none; border: none;
+    font-family: var(--font); font-size: 14px;
+    color: var(--text); text-align: left; cursor: pointer;
+    min-height: 44px;
+  }
+  .section-label { font-weight: 600; flex-shrink: 0; }
+  .section-summary {
+    flex: 1; min-width: 0;
+    color: var(--text-muted); font-size: 13px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    text-align: right; padding-right: 4px;
+  }
+  .control-section.section-open .section-toggle .chevron { transform: rotate(180deg); }
+
+  .section-body {
+    display: none;
+    padding: 10px 14px 12px;
+    background: #fafbfc;
+  }
+  .control-section.section-open .section-body {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  }
+  .control-section[data-section="dates"].section-open .section-body {
+    flex-direction: row; gap: 10px;
+  }
+
+  .controls-actions {
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    padding: 10px 14px;
+  }
+  .controls-actions .btn { flex: 1 1 auto; min-height: 44px; justify-content: center; }
+  .controls-actions #bgLoading:not(.active) { display: none; }
+  .controls-actions #bgLoading { flex: 0 0 auto; }
+
   .control-dates { gap: 6px; }
-  .class-filter-btn { padding: 4px 9px; font-size: 12px; }
-  .input-date { width: 130px; }
+
+  /* Larger touch targets for the tiny pill buttons */
+  .class-filter-btn {
+    padding: 9px 13px; font-size: 13px; min-height: 38px; border-radius: 20px;
+  }
+  .class-filter-btns { gap: 10px; }
+  .class-grade-group { gap: 5px; }
+  .btn-tiny { padding: 8px 14px; font-size: 12px; min-height: 36px; }
+
+  /* Date inputs — Norwegian dd.mm.yyyy fits in ~110px */
+  .input-date { width: 110px; }
+
+  /* Hide the "Oppdaterer…" word, keep the spinner */
+  .bg-loading-text { display: none; }
 
   .day { height: 44px; padding: 4px 2px 6px; }
   .day-num { font-size: 12px; }
   .dot { width: 5px; height: 5px; }
 
   .cal-table th { font-size: 10px; padding: 6px 2px; }
+
+  /* Larger panel close button for mobile */
+  .panel-close {
+    width: 40px; height: 40px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 28px; padding: 0;
+  }
+
+  /* Class-selection modal: roomier touch targets */
+  .class-modal-btn { padding: 10px 16px; font-size: 14px; min-height: 40px; }
+  .class-modal { padding: 20px 16px; }
+
+  /* Toast slides down from the top so it doesn't collide with the bottom-anchored panel */
+  .toast {
+    bottom: auto;
+    top: max(16px, env(safe-area-inset-top));
+    transform: translateX(-50%) translateY(-140%);
+    padding: 14px 18px; font-size: 14px;
+    width: max-content;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
 
   /* Panel slides up from bottom on mobile */
   .detail-panel {
@@ -524,6 +696,7 @@ body {
     height: 80vh;
     border-radius: 16px 16px 0 0;
     transition: bottom var(--transition);
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
   }
   .detail-panel.open { bottom: 0; right: 0; }
 }

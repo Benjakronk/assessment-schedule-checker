@@ -2,7 +2,7 @@
 <html lang="no">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Runni ungdomsskole: Vurderingskalender</title>
   <link rel="stylesheet" href="teacher.css">
   <link rel="manifest" href="manifest.json">
@@ -127,7 +127,7 @@
         <div class="header-right">
           <span id="bgLoading" class="bg-loading" role="status" aria-live="polite">
             <span class="mini-spinner"></span>
-            <span>Oppdaterer…</span>
+            <span class="bg-loading-text">Oppdaterer…</span>
           </span>
           <button id="refreshBtn" class="btn btn-ghost" title="Hent ferske data fra server">&#8635; Oppdater</button>
           <button id="logoutBtn" class="btn btn-ghost">Logg ut</button>
@@ -136,7 +136,10 @@
 
       <main class="main">
         <div class="toolbar">
-          <button id="addBtn" class="btn btn-primary">+ Legg til vurdering</button>
+          <button id="addBtn" class="btn btn-primary" aria-label="Legg til vurdering" title="Legg til vurdering">
+            <span class="icon-plus" aria-hidden="true">+</span>
+            <span class="btn-text">Legg til vurdering</span>
+          </button>
           <div class="view-toggle-group" role="group" aria-label="Visningsvalg">
             <button id="viewTable" class="view-toggle-btn">Tabell</button>
             <button id="viewCalendar" class="view-toggle-btn active">Kalender</button>
@@ -144,24 +147,43 @@
           <button id="jumpTodayBtn" class="btn btn-ghost btn-sm" title="Bla til i dag">I dag</button>
           <label class="toggle-label">
             <input type="checkbox" id="showPastToggle">
-            Vis tidligere
+            <span class="full-label">Vis tidligere</span><span class="short-label">Tidligere</span>
           </label>
           <label class="toggle-label">
             <input type="checkbox" id="onlyMineToggle">
-            Vis bare mine
+            <span class="full-label">Vis bare mine</span><span class="short-label">Mine</span>
           </label>
+          <button id="filterToggle" class="toolbar-toggle filter-toolbar-toggle" type="button" aria-expanded="false" aria-controls="filterBar">
+            <span class="chevron" aria-hidden="true">▾</span>
+            <span class="toolbar-toggle-label">Filter</span>
+            <span id="filterSummary" class="toolbar-summary"></span>
+          </button>
         </div>
 
-        <div class="filter-bar">
-          <div class="filter-section">
-            <span class="filter-section-label">Dato</span>
-            <label class="date-label">Fra <input type="date" id="filterStart" class="input input-date"></label>
-            <label class="date-label">Til <input type="date" id="filterEnd" class="input input-date"></label>
+        <div class="filter-bar" id="filterBar">
+          <div class="filter-section" data-section="dates">
+            <span class="filter-section-label control-label-desktop">Dato</span>
+            <button class="section-toggle" type="button" aria-expanded="false">
+              <span class="section-label">Dato</span>
+              <span class="section-summary" id="filterDateSummary"></span>
+              <span class="chevron" aria-hidden="true">▾</span>
+            </button>
+            <div class="section-body">
+              <label class="date-label">Fra <input type="date" id="filterStart" class="input input-date"></label>
+              <label class="date-label">Til <input type="date" id="filterEnd" class="input input-date"></label>
+            </div>
           </div>
-          <div class="filter-section filter-section-classes">
-            <span class="filter-section-label">Klasse</span>
-            <div id="filterClassBtns" class="filter-class-btns"></div>
-            <button id="clearFilterClassesBtn" class="btn btn-ghost btn-tiny" hidden>Tøm</button>
+          <div class="filter-section filter-section-classes" data-section="classes">
+            <span class="filter-section-label control-label-desktop">Klasse</span>
+            <button class="section-toggle" type="button" aria-expanded="false">
+              <span class="section-label">Klasse</span>
+              <span class="section-summary" id="filterClassSummary"></span>
+              <span class="chevron" aria-hidden="true">▾</span>
+            </button>
+            <div class="section-body">
+              <div id="filterClassBtns" class="filter-class-btns"></div>
+              <button id="clearFilterClassesBtn" class="btn btn-ghost btn-tiny" hidden>Tøm</button>
+            </div>
           </div>
         </div>
 

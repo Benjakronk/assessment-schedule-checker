@@ -120,8 +120,36 @@ function setupDashboardListeners() {
   );
   document.getElementById('cfLegacy').addEventListener('change', onColFilterChange);
 
+  // Mobile collapse: filter-bar toggle + per-section toggles
+  document.getElementById('filterToggle').addEventListener('click', () => {
+    const bar = document.getElementById('filterBar');
+    const open = bar.classList.toggle('filter-open');
+    document.getElementById('filterToggle').setAttribute('aria-expanded', String(open));
+  });
+  document.querySelectorAll('#filterBar .section-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const section = btn.closest('.filter-section');
+      const open = section.classList.toggle('section-open');
+      btn.setAttribute('aria-expanded', String(open));
+    });
+  });
+
   // Reflect initial state
   setView(currentView);
+  updateFilterSummary();
+}
+
+function updateFilterSummary() {
+  const classText = filterClasses.length === 0 ? 'Alle klasser' : filterClasses.join(', ');
+  const dateText = (filterStart || filterEnd)
+    ? `${filterStart ? formatDisplayDate(filterStart) : '…'} – ${filterEnd ? formatDisplayDate(filterEnd) : '…'}`
+    : 'Alle datoer';
+  const cs = document.getElementById('filterClassSummary');
+  const ds = document.getElementById('filterDateSummary');
+  const ts = document.getElementById('filterSummary');
+  if (cs) cs.textContent = classText;
+  if (ds) ds.textContent = dateText;
+  if (ts) ts.textContent = `${classText} · ${dateText}`;
 }
 
 function setupModalListeners() {
@@ -281,6 +309,7 @@ function onFilterChange() {
   }
   filterStart = start;
   filterEnd   = end;
+  updateFilterSummary();
   renderCurrentView();
 }
 
@@ -304,6 +333,7 @@ function setupFilterClassBtns() {
         btn.classList.toggle('active');
         filterClasses = [...container.querySelectorAll('.filter-class-btn.active')].map(b => b.dataset.cls);
         updateClearFilterClassesBtn();
+        updateFilterSummary();
         renderCurrentView();
       });
       wrap.appendChild(btn);
@@ -322,6 +352,7 @@ function clearFilterClasses() {
   filterClasses = [];
   document.querySelectorAll('#filterClassBtns .filter-class-btn').forEach(b => b.classList.remove('active'));
   updateClearFilterClassesBtn();
+  updateFilterSummary();
   renderCurrentView();
 }
 
@@ -513,7 +544,34 @@ function buildTeacherMonthCard(monthDate, byDate) {
 
   const title = document.createElement('h2');
   title.className = 'month-title';
-  title.textContent = capitalizeFirst(monthDate.toLocaleString('no', { month: 'long', year: 'numeric' }));
+
+  const name = document.createElement('span');
+  name.className = 'month-name';
+  name.textContent = capitalizeFirst(monthDate.toLocaleString('no', { month: 'long', year: 'numeric' }));
+  title.appendChild(name);
+
+  const navGroup = document.createElement('span');
+  navGroup.className = 'month-nav-group';
+  const prev = document.createElement('button');
+  prev.type = 'button';
+  prev.className = 'month-nav month-nav-prev';
+  prev.setAttribute('aria-label', 'Forrige måned');
+  prev.innerHTML = '&lsaquo;';
+  prev.addEventListener('click', () => {
+    card.previousElementSibling?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  const next = document.createElement('button');
+  next.type = 'button';
+  next.className = 'month-nav month-nav-next';
+  next.setAttribute('aria-label', 'Neste måned');
+  next.innerHTML = '&rsaquo;';
+  next.addEventListener('click', () => {
+    card.nextElementSibling?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  navGroup.appendChild(prev);
+  navGroup.appendChild(next);
+  title.appendChild(navGroup);
+
   card.appendChild(title);
 
   const table = document.createElement('table');
@@ -787,7 +845,6 @@ function serializeModalState() {
 async function handleSave(e) {
   e.preventDefault();
   const errEl   = document.getElementById('modalError');
-  const saveBtn = document.getElementById('saveBtn');
   const classes = getSelectedClasses();
 
   if (classes.length === 0) { errEl.textContent = 'Velg minst én klasse.'; return; }
@@ -809,7 +866,35 @@ async function handleSave(e) {
     return;
   }
 
+  errEl.textContent = '';
   if (payload.teacher) localStorage.setItem(TEACHER_NAME_KEY, payload.teacher);
+
+  const warning = getDateWarning(payload.date);
+  if (warning) {
+    showConfirm(warning, () => performSave(payload));
+    return;
+  }
+  performSave(payload);
+}
+
+function getDateWarning(isoDate) {
+  const sch = schoolDays[isoDate];
+  if (sch && sch.type === 'off') {
+    return `${formatDisplayDate(isoDate)} er markert som "${sch.summaries.join(', ')}" i Nes kommunes skolerute.\n\nVil du likevel legge til en vurdering på denne datoen?`;
+  }
+  // Date-only string → use UTC to avoid local-tz off-by-one
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0=Sun, 6=Sat
+  if (dow === 0 || dow === 6) {
+    const name = dow === 0 ? 'søndag' : 'lørdag';
+    return `${formatDisplayDate(isoDate)} er en ${name}.\n\nVil du likevel legge til en vurdering på denne datoen?`;
+  }
+  return null;
+}
+
+async function performSave(payload) {
+  const errEl   = document.getElementById('modalError');
+  const saveBtn = document.getElementById('saveBtn');
 
   const token  = sessionStorage.getItem('vk_token');
   const action = editingId ? 'update' : 'create';
@@ -840,7 +925,7 @@ async function handleSave(e) {
     }
 
     setCachedData(teacherData);
-    modalBaseline = null; // suppress unsaved-changes prompt
+    modalBaseline = null;
     doCloseModal();
     renderCurrentView();
   } catch {

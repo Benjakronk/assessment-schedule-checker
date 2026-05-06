@@ -37,6 +37,7 @@ async function init() {
   setupListeners();
   setupClassFilterBtns();
   setDefaultDates();
+  updateControlsSummary();
   loadSchoolCalendar();
 
   if ('serviceWorker' in navigator) {
@@ -68,6 +69,20 @@ function setupListeners() {
   document.getElementById('classModalClose').addEventListener('click', () => closeClassModal(null));
   document.getElementById('classModalAll').addEventListener('click', () => closeClassModal('all'));
   document.getElementById('classModalConfirm').addEventListener('click', () => closeClassModal('confirm'));
+
+  // Mobile collapse: outer toolbar + per-section toggles
+  document.getElementById('toolbarToggle').addEventListener('click', () => {
+    const controls = document.getElementById('controls');
+    const open = controls.classList.toggle('toolbar-open');
+    document.getElementById('toolbarToggle').setAttribute('aria-expanded', String(open));
+  });
+  document.querySelectorAll('#controls .section-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const section = btn.closest('.control-section');
+      const open = section.classList.toggle('section-open');
+      btn.setAttribute('aria-expanded', String(open));
+    });
+  });
 
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
@@ -106,7 +121,32 @@ function onDateInputChange() {
     endEl.value   = start;
     showToast('Datointervallet ble byttet om');
   }
+  updateControlsSummary();
   render();
+}
+
+function updateControlsSummary() {
+  const classText = selectedClasses.length === 0
+    ? 'Alle klasser'
+    : selectedClasses.join(', ');
+  const startVal = document.getElementById('startDate').value;
+  const endVal   = document.getElementById('endDate').value;
+  const dateText = (startVal && endVal)
+    ? `${formatShortDate(startVal)} – ${formatShortDate(endVal)}`
+    : 'Ingen dato';
+
+  const cs = document.getElementById('classSummary');
+  const ds = document.getElementById('dateSummary');
+  const ts = document.getElementById('toolbarSummary');
+  if (cs) cs.textContent = classText;
+  if (ds) ds.textContent = dateText;
+  if (ts) ts.textContent = `${classText} · ${dateText}`;
+}
+
+function formatShortDate(iso) {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-');
+  return `${d}.${m}.${y}`;
 }
 
 // ─── Data fetching ────────────────────────────────────────────
@@ -163,6 +203,7 @@ function setupClassFilterBtns() {
         selectedClasses = [...container.querySelectorAll('.class-filter-btn.active')].map(b => b.dataset.cls);
         saveSelectedClasses();
         updateClearBtn();
+        updateControlsSummary();
         render();
       });
       wrap.appendChild(btn);
@@ -187,6 +228,7 @@ function clearClassFilter() {
   selectedClasses = [];
   saveSelectedClasses();
   syncClassFilterBtns();
+  updateControlsSummary();
   render();
 }
 
@@ -202,6 +244,7 @@ function applyRememberedClass() {
   }
   selectedClasses = saved.map(s => String(s).toUpperCase()).filter(s => CLASSES.includes(s));
   syncClassFilterBtns();
+  updateControlsSummary();
 }
 
 function saveSelectedClasses() {
@@ -244,23 +287,27 @@ function showClassModal() {
   rememberFocus();
   document.getElementById('classModalOverlay').classList.add('open');
   document.getElementById('classModal').classList.add('open');
+  document.body.classList.add('scroll-locked');
   setTimeout(() => grid.querySelector('.class-modal-btn')?.focus(), 60);
 }
 
 function closeClassModal(action) {
   document.getElementById('classModalOverlay').classList.remove('open');
   document.getElementById('classModal').classList.remove('open');
+  document.body.classList.remove('scroll-locked');
 
   if (action === 'confirm') {
     const chosen = [...document.querySelectorAll('#classModalGrid .class-modal-btn.active')].map(b => b.dataset.cls);
     selectedClasses = chosen;
     saveSelectedClasses();
     syncClassFilterBtns();
+    updateControlsSummary();
     render();
   } else if (action === 'all') {
     selectedClasses = [];
     saveSelectedClasses(); // [] sentinel — suppresses future modal opens
     syncClassFilterBtns();
+    updateControlsSummary();
     render();
   }
   // action === null (X / Escape): no persistence; modal will appear on next visit.
@@ -324,9 +371,36 @@ function buildMonthCard(monthDate, byDate) {
 
   const title = document.createElement('h2');
   title.className = 'month-title';
-  title.textContent = capitalizeFirst(
+
+  const name = document.createElement('span');
+  name.className = 'month-name';
+  name.textContent = capitalizeFirst(
     monthDate.toLocaleString('no', { month: 'long', year: 'numeric' })
   );
+  title.appendChild(name);
+
+  const navGroup = document.createElement('span');
+  navGroup.className = 'month-nav-group';
+  const prev = document.createElement('button');
+  prev.type = 'button';
+  prev.className = 'month-nav month-nav-prev';
+  prev.setAttribute('aria-label', 'Forrige måned');
+  prev.innerHTML = '&lsaquo;';
+  prev.addEventListener('click', () => {
+    card.previousElementSibling?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  const next = document.createElement('button');
+  next.type = 'button';
+  next.className = 'month-nav month-nav-next';
+  next.setAttribute('aria-label', 'Neste måned');
+  next.innerHTML = '&rsaquo;';
+  next.addEventListener('click', () => {
+    card.nextElementSibling?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  navGroup.appendChild(prev);
+  navGroup.appendChild(next);
+  title.appendChild(navGroup);
+
   card.appendChild(title);
 
   const table = document.createElement('table');
@@ -489,12 +563,14 @@ function openPanel(date, assessments) {
 
   document.getElementById('panelOverlay').classList.add('open');
   document.getElementById('detailPanel').classList.add('open');
+  document.body.classList.add('scroll-locked');
   setTimeout(() => document.getElementById('panelClose').focus(), 60);
 }
 
 function closePanel() {
   document.getElementById('panelOverlay').classList.remove('open');
   document.getElementById('detailPanel').classList.remove('open');
+  document.body.classList.remove('scroll-locked');
   restoreFocus();
 }
 

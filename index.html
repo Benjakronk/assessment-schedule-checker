@@ -2,7 +2,7 @@
 <html lang="no">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Vurderingskalender: Runni ungdomsskole</title>
   <link rel="stylesheet" href="styles.css">
   <link rel="manifest" href="manifest.json">
@@ -53,30 +53,59 @@
     </header>
 
     <main class="main">
-      <div class="controls">
-        <div class="control-classes">
-          <span class="control-label">Klasse</span>
-          <div id="classFilterBtns" class="class-filter-btns"></div>
-          <button id="clearClassesBtn" class="btn btn-ghost btn-tiny" hidden>Tøm</button>
+      <div class="controls" id="controls">
+        <!-- Mobile-only quickbar; toggles the controls body -->
+        <div class="controls-quickbar">
+          <button id="toolbarToggle" class="toolbar-toggle" type="button" aria-expanded="false" aria-controls="controlsBody">
+            <span class="chevron" aria-hidden="true">▾</span>
+            <span class="toolbar-toggle-label">Filter</span>
+            <span id="toolbarSummary" class="toolbar-summary"></span>
+          </button>
         </div>
-        <div class="control-dates">
-          <label class="date-label">
-            Fra
-            <input type="date" id="startDate" class="input input-date">
-          </label>
-          <label class="date-label">
-            Til
-            <input type="date" id="endDate" class="input input-date">
-          </label>
+
+        <div id="controlsBody" class="controls-body">
+          <div class="control-section" data-section="classes">
+            <span class="control-label control-label-desktop">Klasse</span>
+            <button class="section-toggle" type="button" aria-expanded="false">
+              <span class="section-label">Klasse</span>
+              <span class="section-summary" id="classSummary"></span>
+              <span class="chevron" aria-hidden="true">▾</span>
+            </button>
+            <div class="section-body">
+              <div id="classFilterBtns" class="class-filter-btns"></div>
+              <button id="clearClassesBtn" class="btn btn-ghost btn-tiny" hidden>Tøm</button>
+            </div>
+          </div>
+
+          <div class="control-section" data-section="dates">
+            <button class="section-toggle" type="button" aria-expanded="false">
+              <span class="section-label">Dato</span>
+              <span class="section-summary" id="dateSummary"></span>
+              <span class="chevron" aria-hidden="true">▾</span>
+            </button>
+            <div class="section-body control-dates">
+              <label class="date-label">
+                Fra
+                <input type="date" id="startDate" class="input input-date">
+              </label>
+              <label class="date-label">
+                Til
+                <input type="date" id="endDate" class="input input-date">
+              </label>
+            </div>
+          </div>
+
+          <div class="controls-actions">
+            <button id="jumpTodayBtn" class="btn btn-ghost" title="Bla til i dag">I dag</button>
+            <button id="refreshBtn" class="btn btn-ghost" title="Hent ferske data fra server">
+              &#8635; Oppdater
+            </button>
+            <span id="bgLoading" class="bg-loading" role="status" aria-live="polite">
+              <span class="mini-spinner"></span>
+              <span class="bg-loading-text">Oppdaterer…</span>
+            </span>
+          </div>
         </div>
-        <button id="jumpTodayBtn" class="btn btn-ghost" title="Bla til i dag">I dag</button>
-        <button id="refreshBtn" class="btn btn-ghost" title="Hent ferske data fra server">
-          &#8635; Oppdater
-        </button>
-        <span id="bgLoading" class="bg-loading" role="status" aria-live="polite">
-          <span class="mini-spinner"></span>
-          <span>Oppdaterer…</span>
-        </span>
       </div>
 
       <div id="calendar" class="calendar"></div>

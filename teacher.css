@@ -88,14 +88,15 @@ body {
 .btn-primary {
   background: var(--primary); color: #fff; border-color: var(--primary);
 }
-.btn-primary:not(:disabled):hover {
-  background: var(--primary-dark); border-color: var(--primary-dark);
-}
-
 .btn-ghost {
   background: var(--surface); color: var(--text-muted); border-color: var(--border);
 }
-.btn-ghost:not(:disabled):hover { background: var(--bg); color: var(--text); }
+@media (hover: hover) {
+  .btn-primary:not(:disabled):hover {
+    background: var(--primary-dark); border-color: var(--primary-dark);
+  }
+  .btn-ghost:not(:disabled):hover { background: var(--bg); color: var(--text); }
+}
 
 .btn-full { width: 100%; justify-content: center; }
 
@@ -108,8 +109,10 @@ body {
   color: var(--text-muted);
   transition: background var(--transition), color var(--transition);
 }
-.icon-btn:hover { background: var(--bg); color: var(--text); }
-.icon-btn-danger:hover { background: var(--danger-light); color: var(--danger); border-color: var(--danger); }
+@media (hover: hover) {
+  .icon-btn:hover { background: var(--bg); color: var(--text); }
+  .icon-btn-danger:hover { background: var(--danger-light); color: var(--danger); border-color: var(--danger); }
+}
 
 /* ── Inputs ────────────────────────────────────────────────── */
 .input {
@@ -138,6 +141,7 @@ body {
   max-width: 1500px; margin: 0 auto;
   padding: 0 24px;
   height: 100vh;
+  height: 100dvh;
   display: flex; flex-direction: column;
   overflow: hidden;
 }
@@ -158,7 +162,7 @@ body {
   margin-bottom: 0;
   flex-shrink: 0;
 }
-.header-right { display: flex; gap: 8px; }
+.header-right { display: flex; gap: 8px; align-items: center; }
 .site-title { font-size: 20px; font-weight: 700; color: var(--text); }
 .site-subtitle { font-size: 13px; color: var(--text-muted); margin-top: 1px; }
 
@@ -188,7 +192,7 @@ body {
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-card);
   overflow: auto;
-  scrollbar-gutter: stable; /* always reserves scrollbar space, no layout shift */
+  scrollbar-gutter: stable;
 }
 
 .data-table {
@@ -210,7 +214,9 @@ body {
   vertical-align: middle;
 }
 .data-table tbody tr:last-child td { border-bottom: none; }
-.data-table tbody tr:hover td { background: #f8fafc; }
+@media (hover: hover) {
+  .data-table tbody tr:hover td { background: #f8fafc; }
+}
 
 .past-row td { color: var(--text-muted); }
 
@@ -308,61 +314,17 @@ select.col-filter { cursor: pointer; }
   font-weight: 600; font-size: 14px; cursor: pointer;
   padding: 2px 4px;
 }
-.toast-action:hover { color: #bfdbfe; }
+@media (hover: hover) {
+  .toast-action:hover { color: #bfdbfe; }
+}
 
 /* Day cells: keyboard focus ring */
 .day:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 
-/* ── School calendar markers ──────────────────────────────── */
-/* School fills always override has-assessments tint and hover state. */
-.day.school-off,
-.day.school-off.has-assessments              { background: #fef2f2; }
-.day.school-off:hover,
-.day.school-off.has-assessments:hover        { background: #fee2e2; }
-.day.school-off .day-num                     { color: #b91c1c; }
-
-.day.school-planning,
-.day.school-planning.has-assessments         { background: #fef3c7; }
-.day.school-planning:hover,
-.day.school-planning.has-assessments:hover   { background: #fde68a; }
-
-.day.school-marker,
-.day.school-marker.has-assessments           { background: #dcfce7; box-shadow: inset 0 3px 0 #16a34a; }
-.day.school-marker:hover,
-.day.school-marker.has-assessments:hover     { background: #bbf7d0; }
-.school-badge {
-  position: absolute; top: 4px; right: 4px;
-  background: #d97706; color: #fff;
-  font-size: 9px; font-weight: 700;
-  width: 14px; height: 14px;
-  border-radius: 50%;
-  display: inline-flex; align-items: center; justify-content: center;
-  line-height: 1;
-}
-.day.today.school-off,
-.day.today.school-planning { background: #fef9c3; }
-
-/* School-day info card (in detail panel) */
-.school-day-card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 14px;
-  display: flex; flex-direction: column; gap: 4px;
-  border-left: 4px solid #94a3b8;
-}
-.school-day-card.school-day-off      { border-left-color: #dc2626; background: #fef2f2; }
-.school-day-card.school-day-planning { border-left-color: #d97706; background: #fef3c7; }
-.school-day-card.school-day-marker   { border-left-color: #16a34a; background: #f0fdf4; }
-.school-day-label {
-  font-size: 11px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.05em;
-  color: var(--text-muted);
-}
-.school-day-summary { font-size: 14px; font-weight: 600; color: var(--text); }
-
 /* ── Login page ────────────────────────────────────────────── */
 .login-page {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex; align-items: center; justify-content: center;
   padding: 24px;
   background: var(--bg);
@@ -405,7 +367,9 @@ select.col-filter { cursor: pointer; }
   top: 50%; left: 50%;
   transform: translate(-50%, -48%) scale(0.97);
   width: 96%; max-width: 520px;
-  max-height: 92vh; overflow-y: auto;
+  max-height: 92vh;
+  max-height: 92dvh;
+  overflow-y: auto;
   background: var(--surface);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-modal);
@@ -449,7 +413,9 @@ select.col-filter { cursor: pointer; }
   cursor: pointer;
   transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
-.class-toggle:hover { border-color: var(--primary); color: var(--primary); }
+@media (hover: hover) {
+  .class-toggle:hover { border-color: var(--primary); color: var(--primary); }
+}
 .class-toggle.active {
   background: var(--primary-light); color: var(--primary);
   border-color: var(--primary); font-weight: 600;
@@ -509,40 +475,6 @@ select.col-filter { cursor: pointer; }
 }
 .conflict-week-current .conflict-week-label { color: #b45309; }
 
-/* ── Responsive ────────────────────────────────────────────── */
-@media (max-width: 600px) {
-  .site-header { flex-direction: column; align-items: flex-start; }
-  .header-right { width: 100%; justify-content: flex-end; }
-
-  .login-card { padding: 28px 20px; }
-
-  .modal-header { padding: 16px 16px 12px; }
-  .modal-body   { padding: 16px; gap: 14px; }
-
-  /* Responsive table: stack rows on very small screens */
-  .data-table, .data-table thead, .data-table tbody,
-  .data-table th, .data-table td, .data-table tr {
-    display: block;
-  }
-  .data-table thead { display: none; }
-  .data-table td {
-    padding: 6px 12px;
-    display: flex; gap: 8px;
-  }
-  .data-table td::before {
-    content: attr(data-label);
-    font-weight: 600; font-size: 12px;
-    color: var(--text-muted); min-width: 90px;
-  }
-  .data-table td.action-cell {
-    justify-content: flex-end; padding: 8px 12px 12px;
-  }
-  .data-table td.action-cell::before { display: none; }
-  .data-table tbody tr {
-    border-bottom: 2px solid var(--border); padding: 4px 0;
-  }
-}
-
 /* ── Confirm / Alert dialog ────────────────────────────────── */
 .confirm-overlay {
   position: fixed; inset: 0; z-index: 400;
@@ -590,7 +522,9 @@ select.col-filter { cursor: pointer; }
 }
 .view-toggle-btn + .view-toggle-btn { border-left: 1px solid var(--border); }
 .view-toggle-btn.active { background: var(--primary); color: #fff; }
-.view-toggle-btn:not(.active):hover { background: var(--bg); color: var(--text); }
+@media (hover: hover) {
+  .view-toggle-btn:not(.active):hover { background: var(--bg); color: var(--text); }
+}
 
 /* ── Filter bar ────────────────────────────────────────────── */
 .filter-bar {
@@ -603,6 +537,10 @@ select.col-filter { cursor: pointer; }
   display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
 }
 .filter-section-classes { align-items: flex-start; }
+/* Desktop: section toggle hidden; section body lays out flat into the filter section */
+.filter-bar .section-toggle, .filter-toolbar-toggle { display: none; }
+.filter-bar .section-body { display: contents; }
+.toggle-label .short-label { display: none; }
 .filter-section-label {
   font-size: 11px; font-weight: 700; color: var(--text-muted);
   text-transform: uppercase; letter-spacing: 0.06em;
@@ -623,7 +561,9 @@ select.col-filter { cursor: pointer; }
   cursor: pointer;
   transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
-.filter-class-btn:hover { border-color: var(--primary); color: var(--primary); }
+@media (hover: hover) {
+  .filter-class-btn:hover { border-color: var(--primary); color: var(--primary); }
+}
 .filter-class-btn.active {
   background: var(--primary-light); color: var(--primary);
   border-color: var(--primary); font-weight: 600;
@@ -640,10 +580,27 @@ select.col-filter { cursor: pointer; }
 }
 .month-title {
   font-size: 15px; font-weight: 600;
-  padding: 14px 18px 12px;
+  padding: 10px 12px 10px 18px;
   border-bottom: 1px solid var(--border);
   border-left: 4px solid var(--primary);
+  display: flex; align-items: center; gap: 8px;
 }
+.month-name { flex: 1; min-width: 0; }
+.month-nav-group { display: inline-flex; gap: 4px; flex-shrink: 0; }
+.month-nav {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px;
+  background: none; border: 1px solid var(--border);
+  border-radius: 4px; cursor: pointer;
+  font-size: 18px; line-height: 1;
+  color: var(--text-muted); font-family: var(--font);
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+@media (hover: hover) {
+  .month-nav:hover { background: var(--bg); color: var(--primary); border-color: var(--primary); }
+}
+.month-card:first-of-type .month-nav-prev,
+.month-card:last-of-type .month-nav-next { visibility: hidden; }
 .cal-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .cal-table th {
   font-size: 11px; font-weight: 600; text-transform: uppercase;
@@ -662,7 +619,9 @@ select.col-filter { cursor: pointer; }
   cursor: pointer;
   transition: background var(--transition);
 }
-.day:hover { background: var(--primary-light); }
+@media (hover: hover) {
+  .day:hover { background: var(--primary-light); }
+}
 .day-num { display: block; font-size: 13px; font-weight: 500; line-height: 1; margin-bottom: 4px; }
 /* Saturdays + Sundays — subtle gray; any state below (today, assessment, school) overrides */
 .weekend { background: #eef2f6; }
@@ -678,9 +637,58 @@ select.col-filter { cursor: pointer; }
   display: inline-flex; align-items: center; justify-content: center; font-size: 12px;
 }
 .has-assessments { background: var(--primary-light); }
-.has-assessments:hover { background: #bfdbfe; }
+@media (hover: hover) {
+  .has-assessments:hover { background: #bfdbfe; }
+}
 .dots { display: flex; align-items: center; justify-content: center; gap: 3px; }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); flex-shrink: 0; }
+
+/* ── School calendar markers ──────────────────────────────── */
+/* School fills always override has-assessments tint and hover state. */
+.day.school-off,
+.day.school-off.has-assessments              { background: #fef2f2; }
+.day.school-off .day-num                     { color: #b91c1c; }
+.day.school-planning,
+.day.school-planning.has-assessments         { background: #fef3c7; }
+.day.school-marker,
+.day.school-marker.has-assessments           { background: #dcfce7; box-shadow: inset 0 3px 0 #16a34a; }
+@media (hover: hover) {
+  .day.school-off:hover,
+  .day.school-off.has-assessments:hover        { background: #fee2e2; }
+  .day.school-planning:hover,
+  .day.school-planning.has-assessments:hover   { background: #fde68a; }
+  .day.school-marker:hover,
+  .day.school-marker.has-assessments:hover     { background: #bbf7d0; }
+}
+.school-badge {
+  position: absolute; top: 4px; right: 4px;
+  background: #d97706; color: #fff;
+  font-size: 9px; font-weight: 700;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  line-height: 1;
+}
+.day.today.school-off,
+.day.today.school-planning { background: #fef9c3; }
+
+/* School-day info card (in detail panel) */
+.school-day-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 4px;
+  border-left: 4px solid #94a3b8;
+}
+.school-day-card.school-day-off      { border-left-color: #dc2626; background: #fef2f2; }
+.school-day-card.school-day-planning { border-left-color: #d97706; background: #fef3c7; }
+.school-day-card.school-day-marker   { border-left-color: #16a34a; background: #f0fdf4; }
+.school-day-label {
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.school-day-summary { font-size: 14px; font-weight: 600; color: var(--text); }
 
 /* ── Teacher day panel ─────────────────────────────────────── */
 .panel-overlay {
@@ -705,7 +713,9 @@ select.col-filter { cursor: pointer; }
   font-size: 22px; line-height: 1; color: var(--text-muted);
   padding: 4px 8px; border-radius: 4px;
 }
-.panel-close:hover { background: var(--bg); color: var(--text); }
+@media (hover: hover) {
+  .panel-close:hover { background: var(--bg); color: var(--text); }
+}
 .panel-title { font-size: 15px; font-weight: 600; padding-right: 40px; line-height: 1.4; }
 .panel-add-btn { width: 100%; justify-content: center; }
 .panel-body { display: flex; flex-direction: column; gap: 10px; }
@@ -728,14 +738,168 @@ select.col-filter { cursor: pointer; }
 .btn-ghost-danger {
   background: none; color: var(--danger); border-color: var(--border);
 }
-.btn-ghost-danger:hover { background: var(--danger-light); border-color: var(--danger); }
+@media (hover: hover) {
+  .btn-ghost-danger:hover { background: var(--danger-light); border-color: var(--danger); }
+}
 
+/* ── Mobile ────────────────────────────────────────────────── */
 @media (max-width: 600px) {
+  .site-header { flex-direction: column; align-items: flex-start; }
+  .header-right { width: 100%; justify-content: flex-end; }
+
+  .login-card { padding: 28px 20px; }
+
+  .modal-header { padding: 16px 16px 12px; }
+  .modal-body   { padding: 16px; gap: 14px; }
+
+  /* Toolbar: condense the long Add label to just "+" */
+  #addBtn .btn-text { display: none; }
+  #addBtn .icon-plus { font-size: 18px; line-height: 1; }
+  #addBtn { padding: 10px 14px; min-height: 40px; min-width: 40px; }
+
+  /* Hide the "Oppdaterer…" word, keep the spinner */
+  .bg-loading-text { display: none; }
+
+  /* Larger touch targets for filter and modal pill buttons */
+  .filter-class-btn,
+  .class-toggle {
+    padding: 9px 13px; font-size: 13px; min-height: 38px; border-radius: 20px;
+  }
+  .filter-class-btns { gap: 10px; }
+  .class-grade-group { gap: 5px; }
+  .class-grid { gap: 10px; }
+  .btn-tiny { padding: 8px 14px; font-size: 12px; min-height: 36px; }
+  .icon-btn { width: 38px; height: 38px; font-size: 16px; }
+  .col-filter { padding: 8px 8px; font-size: 13px; min-height: 36px; }
+  select.col-filter { padding-right: 24px; }
+  .conflict-range-select { padding: 6px 8px; font-size: 12px; min-height: 32px; }
+  .toggle-label input[type="checkbox"] { width: 18px; height: 18px; }
+  .view-toggle-btn { padding: 9px 16px; font-size: 13px; min-height: 40px; }
+
+  /* Filter bar: collapsible on mobile */
+  .filter-bar {
+    padding: 0; gap: 0; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 10px;
+    flex-direction: column; align-items: stretch;
+    overflow: hidden;
+  }
+  .filter-bar:not(.filter-open) { display: none; }
+  .filter-bar.filter-open .filter-section + .filter-section {
+    border-top: 1px solid var(--border);
+  }
+  .filter-section { display: flex; flex-direction: column; gap: 0; flex: none; }
+  .filter-section .control-label-desktop { display: none; }
+  .filter-section .section-toggle {
+    display: inline-flex; width: 100%; align-items: center;
+    gap: 8px; padding: 11px 14px;
+    background: none; border: none;
+    font-family: var(--font); font-size: 14px;
+    color: var(--text); text-align: left; cursor: pointer;
+    min-height: 44px;
+  }
+  .filter-section .section-toggle .section-label { font-weight: 600; flex-shrink: 0; }
+  .filter-section .section-toggle .section-summary {
+    flex: 1; min-width: 0;
+    color: var(--text-muted); font-size: 13px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    text-align: right; padding-right: 4px;
+  }
+  .filter-section .section-toggle .chevron {
+    color: var(--text-muted);
+    transition: transform var(--transition);
+    font-size: 12px;
+  }
+  .filter-section.section-open .section-toggle .chevron { transform: rotate(180deg); }
+  .filter-bar .section-body {
+    display: none;
+    padding: 10px 14px 12px; background: #fafbfc;
+    flex-wrap: wrap; gap: 8px; align-items: center;
+  }
+  .filter-section.section-open .section-body { display: flex; }
+
+  /* Filter toggle button in toolbar */
+  .filter-toolbar-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 9px 12px; min-height: 40px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-btn);
+    font-family: var(--font); font-size: 13px; cursor: pointer;
+    color: var(--text);
+    flex: 1 1 100%; min-width: 0;
+  }
+  .filter-toolbar-toggle .toolbar-toggle-label { font-weight: 600; }
+  .filter-toolbar-toggle .toolbar-summary {
+    flex: 1; min-width: 0;
+    color: var(--text-muted); font-size: 12px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    text-align: right;
+  }
+  .filter-toolbar-toggle .chevron {
+    color: var(--text-muted);
+    transition: transform var(--transition);
+    font-size: 12px;
+  }
+  .filter-toolbar-toggle[aria-expanded="true"] .chevron { transform: rotate(180deg); }
+
+  /* Compact toggle labels */
+  .toggle-label .full-label { display: none; }
+  .toggle-label .short-label { display: inline; }
+  .toolbar { gap: 8px 10px; }
+
+  /* Login form: roomier inputs */
+  .login-card .input { padding: 10px 12px; font-size: 16px; min-height: 44px; }
+  .login-card .btn { padding: 12px 16px; min-height: 44px; }
+
+  /* Modal text inputs/textarea — bigger to avoid iOS auto-zoom */
+  .modal .input { font-size: 16px; }
+
+  /* Toast slides down from top so it doesn't sit behind the bottom-anchored panel */
+  .toast {
+    bottom: auto;
+    top: max(16px, env(safe-area-inset-top));
+    transform: translateX(-50%) translateY(-140%);
+    padding: 14px 18px; font-size: 14px;
+    width: max-content;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* Larger panel close button */
+  .panel-close {
+    width: 40px; height: 40px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 28px; padding: 0;
+  }
+
+  /* Responsive table: stack rows on very small screens */
+  .data-table, .data-table thead, .data-table tbody,
+  .data-table th, .data-table td, .data-table tr {
+    display: block;
+  }
+  .data-table thead { display: none; }
+  .data-table td {
+    padding: 6px 12px;
+    display: flex; gap: 8px;
+  }
+  .data-table td::before {
+    content: attr(data-label);
+    font-weight: 600; font-size: 12px;
+    color: var(--text-muted); min-width: 90px;
+  }
+  .data-table td.action-cell {
+    justify-content: flex-end; padding: 8px 12px 12px;
+  }
+  .data-table td.action-cell::before { display: none; }
+  .data-table tbody tr {
+    border-bottom: 2px solid var(--border); padding: 4px 0;
+  }
+
+  /* Day panel slides up from bottom on mobile */
   .detail-panel {
     top: auto; right: 0; bottom: -80vh; width: 100%; height: 80vh;
+    height: 80dvh;
     border-radius: 16px 16px 0 0; transition: bottom var(--transition);
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
   }
   .detail-panel.open { bottom: 0; }
-  .filter-bar { gap: 8px; }
   .view-toggle-group { order: -1; }
 }
