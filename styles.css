@@ -474,6 +474,11 @@ body.scroll-locked { overflow: hidden; }
   content: ' — kunne ikke oppdatere';
   font-style: italic;
 }
+.copyright {
+  text-align: center; font-size: 11px;
+  color: var(--text-muted); opacity: 0.7;
+  margin: 4px 0 0;
+}
 
 /* ── Toast ─────────────────────────────────────────────────── */
 .toast {

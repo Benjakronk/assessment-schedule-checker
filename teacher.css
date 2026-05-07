@@ -295,6 +295,14 @@ select.col-filter { cursor: pointer; }
   content: ' — kunne ikke oppdatere';
   font-style: italic;
 }
+.copyright {
+  text-align: center; font-size: 11px;
+  color: var(--text-muted); opacity: 0.7;
+  margin: 4px 0 0;
+}
+.login-copyright {
+  margin-top: 24px;
+}
 
 /* ── Toast ─────────────────────────────────────────────────── */
 .toast {
