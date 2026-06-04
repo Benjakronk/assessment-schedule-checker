@@ -47,7 +47,6 @@ let colFilterClass   = '';
 let colFilterSubject = '';
 let colFilterDesc    = '';
 let colFilterTeacher = '';
-let colFilterLegacy  = 'all';
 
 // ─── Init ─────────────────────────────────────────────────────
 
@@ -118,7 +117,6 @@ function setupDashboardListeners() {
   ['cfDate','cfClass','cfSubject','cfDesc','cfTeacher'].forEach(id =>
     document.getElementById(id).addEventListener('input', debounce(onColFilterChange, 300))
   );
-  document.getElementById('cfLegacy').addEventListener('change', onColFilterChange);
 
   // Mobile collapse: filter-bar toggle + per-section toggles
   document.getElementById('filterToggle').addEventListener('click', () => {
@@ -176,7 +174,7 @@ function applyDateInputBounds() {
   const modalDate = document.getElementById('modalDate');
   modalDate.min = SCHOOL_YEAR.start;
   modalDate.max = SCHOOL_YEAR.end;
-  // Filter date inputs intentionally have no min/max so teachers can browse legacy data.
+  // Filter date inputs intentionally have no min/max so teachers can browse past data.
 }
 
 // ─── Auth ─────────────────────────────────────────────────────
@@ -362,7 +360,6 @@ function onColFilterChange() {
   colFilterSubject = document.getElementById('cfSubject').value.trim();
   colFilterDesc    = document.getElementById('cfDesc').value.trim();
   colFilterTeacher = document.getElementById('cfTeacher').value.trim();
-  colFilterLegacy  = document.getElementById('cfLegacy').value;
   if (currentView === 'table') renderTable();
 }
 
@@ -392,8 +389,6 @@ function getTableFilteredData() {
     if (colFilterSubject && !e.subject.toUpperCase().includes(colFilterSubject.toUpperCase()))                 return false;
     if (colFilterDesc    && !(e.description||e.notes||'').toUpperCase().includes(colFilterDesc.toUpperCase())) return false;
     if (colFilterTeacher && !(e.teacher||'').toUpperCase().includes(colFilterTeacher.toUpperCase()))           return false;
-    if (colFilterLegacy === 'new'    &&  e.isLegacy) return false;
-    if (colFilterLegacy === 'legacy' && !e.isLegacy) return false;
     return true;
   });
 }
@@ -417,8 +412,6 @@ function renderCurrentView() {
 
 // ─── Table rendering ───────────────────────────────────────────
 
-const LEGACY_NOTE = 'Denne vurderingen er fra det gamle systemet, og kan ikke redigeres her. Ta kontakt med Benjamin for å endre denne vurderingen.';
-
 function renderTable() {
   const tbody = document.querySelector('#dataTable tbody');
   tbody.innerHTML = '';
@@ -437,12 +430,9 @@ function renderTable() {
     const tr = document.createElement('tr');
     tr.className = 'data-row';
     if (entry.date < today) tr.classList.add('past-row');
-    if (entry.isLegacy)     tr.classList.add('legacy-row');
 
-    const actionCell = entry.isLegacy
-      ? `<button class="icon-btn" title="Kopier" data-id="${escapeHtml(entry.id)}" data-action="clone">&#x2398;</button>
-         <span class="legacy-badge">Gammelt system</span>`
-      : `<button class="icon-btn" title="Rediger" data-id="${escapeHtml(entry.id)}" data-action="edit">&#9998;</button>
+    const actionCell =
+      `<button class="icon-btn" title="Rediger" data-id="${escapeHtml(entry.id)}" data-action="edit">&#9998;</button>
          <button class="icon-btn" title="Kopier" data-id="${escapeHtml(entry.id)}" data-action="clone">&#x2398;</button>
          <button class="icon-btn icon-btn-danger" title="Slett" data-id="${escapeHtml(entry.id)}" data-action="delete">&#10005;</button>`;
 
@@ -469,24 +459,17 @@ function renderTable() {
       p.className   = 'expand-desc';
       p.textContent = desc;
       expandTd.appendChild(p);
-    } else if (!entry.isLegacy) {
+    } else {
       const p = document.createElement('p');
       p.className   = 'expand-desc expand-empty';
       p.textContent = 'Ingen beskrivelse.';
       expandTd.appendChild(p);
     }
 
-    if (entry.isLegacy) {
-      const note = document.createElement('p');
-      note.className   = 'expand-legacy-note';
-      note.textContent = LEGACY_NOTE;
-      expandTd.appendChild(note);
-    }
-
     expandTr.appendChild(expandTd);
 
     tr.addEventListener('click', e => {
-      if (e.target.closest('[data-action]') || e.target.closest('.legacy-badge')) return;
+      if (e.target.closest('[data-action]')) return;
       const opening = expandTr.hidden;
       expandTr.hidden = !opening;
       tr.classList.toggle('row-expanded', opening);
@@ -732,13 +715,11 @@ function openTeacherPanel(date, entries) {
       const actions = document.createElement('div');
       actions.className = 'ac-panel-actions';
 
-      if (!e.isLegacy) {
-        const editBtn = document.createElement('button');
-        editBtn.className   = 'btn btn-sm btn-ghost';
-        editBtn.textContent = 'Rediger';
-        editBtn.addEventListener('click', () => { closeTeacherPanel(); openModal({ id: e.id }); });
-        actions.appendChild(editBtn);
-      }
+      const editBtn = document.createElement('button');
+      editBtn.className   = 'btn btn-sm btn-ghost';
+      editBtn.textContent = 'Rediger';
+      editBtn.addEventListener('click', () => { closeTeacherPanel(); openModal({ id: e.id }); });
+      actions.appendChild(editBtn);
 
       const cloneBtn = document.createElement('button');
       cloneBtn.className   = 'btn btn-sm btn-ghost';
@@ -746,18 +727,11 @@ function openTeacherPanel(date, entries) {
       cloneBtn.addEventListener('click', () => { closeTeacherPanel(); openModal({ cloneFrom: e }); });
       actions.appendChild(cloneBtn);
 
-      if (!e.isLegacy) {
-        const delBtn = document.createElement('button');
-        delBtn.className   = 'btn btn-sm btn-ghost-danger';
-        delBtn.textContent = 'Slett';
-        delBtn.addEventListener('click', () => handleDelete(e.id));
-        actions.appendChild(delBtn);
-      } else {
-        const badge = document.createElement('span');
-        badge.className   = 'legacy-badge';
-        badge.textContent = 'Gammelt system';
-        actions.appendChild(badge);
-      }
+      const delBtn = document.createElement('button');
+      delBtn.className   = 'btn btn-sm btn-ghost-danger';
+      delBtn.textContent = 'Slett';
+      delBtn.addEventListener('click', () => handleDelete(e.id));
+      actions.appendChild(delBtn);
 
       card.appendChild(actions);
       body.appendChild(card);
