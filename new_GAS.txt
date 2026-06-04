@@ -1,0 +1,206 @@
+// =============================================================
+// CONFIGURATION
+// All assessments live in the Vurderinger sheet, written via
+// the teacher dashboard. The old Forms-fed sheet has been
+// phased out and is no longer read.
+// =============================================================
+var NEW_SHEET_NAME        = 'Vurderinger';
+
+// =============================================================
+// ONE-TIME SETUP
+// Run this function ONCE from the Script Editor after
+// deployment to store the hashed teacher password.
+// Never call this via HTTP — it is not reachable that way.
+//
+// Usage: open the Script Editor, select setupPassword from
+// the function dropdown, paste your chosen password as the
+// argument, then click Run.
+// =============================================================
+function setupPassword(plaintext) {
+  PropertiesService.getScriptProperties()
+    .setProperty('PASSWORD_HASH', hashString(plaintext));
+  Logger.log('Password hash stored successfully.');
+}
+
+// =============================================================
+// HTTP ENTRY POINTS
+// Deploy as: Execute as → Me | Who has access → Anyone
+// =============================================================
+
+function doGet(e) {
+  var action = ((e.parameter && e.parameter.action) || 'public').toLowerCase();
+  try {
+    // Only the public (student) feed is exposed over GET. Authenticated
+    // reads use POST so the token never travels in the URL.
+    if (action === 'public') return respond(getPublicData());
+
+    return respond({ error: 'Unknown action' });
+  } catch (err) {
+    return respond({ error: err.message });
+  }
+}
+
+function doPost(e) {
+  var p      = e.parameter || {};
+  var action = (p.action || '').toLowerCase();
+  try {
+    if (action === 'login') return respond(handleLogin(p.password));
+
+    if (!validateToken(p.token)) return respond({ error: 'Unauthorized' });
+
+    if (action === 'all')    return respond(getAllData());
+    if (action === 'create') return respond(createEntry(p));
+    if (action === 'update') return respond(updateEntry(p));
+    if (action === 'delete') return respond(deleteEntry(p.id));
+
+    return respond({ error: 'Unknown action' });
+  } catch (err) {
+    return respond({ error: err.message });
+  }
+}
+
+// =============================================================
+// AUTHENTICATION
+// =============================================================
+
+function handleLogin(password) {
+  if (!password) return { error: 'Passord mangler' };
+  var storedHash = PropertiesService.getScriptProperties().getProperty('PASSWORD_HASH');
+  if (!storedHash) return { error: 'Server ikke konfigurert — kjør setupPassword() først' };
+  if (hashString(password) !== storedHash) return { error: 'Feil passord' };
+
+  var token = Utilities.getUuid();
+  CacheService.getScriptCache().put('tok_' + token, '1', 14400); // 4 hours
+  return { token: token };
+}
+
+function validateToken(token) {
+  if (!token) return false;
+  return CacheService.getScriptCache().get('tok_' + token) !== null;
+}
+
+function hashString(s) {
+  var bytes = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    s,
+    Utilities.Charset.UTF_8
+  );
+  return bytes.map(function(b) {
+    return (b < 0 ? b + 256 : b).toString(16).padStart(2, '0');
+  }).join('');
+}
+
+// =============================================================
+// DATA ACCESS
+// =============================================================
+
+function getNewSheet() {
+  return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(NEW_SHEET_NAME);
+}
+
+// Reads the new Vurderinger sheet. Column order: id, timestamp, date, subject, classes, description, teacher
+function readNewSheet() {
+  var sheet = getNewSheet();
+  var data  = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+  var tz = Session.getScriptTimeZone();
+  return data.slice(1)
+    .filter(function(row) { return row[0] !== ''; })
+    .map(function(row) {
+      return {
+        id:          String(row[0]),
+        timestamp:   row[1] ? Utilities.formatDate(new Date(row[1]), tz, 'yyyy-MM-dd HH:mm') : '',
+        date:        row[2] ? isoDate(new Date(row[2])) : '',
+        subject:     String(row[3] || ''),
+        classes:     String(row[4] || ''),
+        description: String(row[5] || ''),
+        notes:       String(row[5] || ''), // backward-compat alias
+        teacher:     String(row[6] || '')
+      };
+    })
+    .filter(function(r) { return r.date !== ''; });
+}
+
+// Assessments for the public (student) endpoint
+function getPublicData() {
+  var data = readNewSheet();
+  data.sort(function(a, b) { return new Date(a.date) - new Date(b.date); });
+  return data;
+}
+
+// Assessments for the teacher dashboard.
+function getAllData() {
+  var data = readNewSheet();
+  data.sort(function(a, b) { return new Date(a.date) - new Date(b.date); });
+  return data;
+}
+
+// =============================================================
+// CRUD
+// =============================================================
+
+function createEntry(p) {
+  var sheet = getNewSheet();
+  var id    = Utilities.getUuid();
+  var now   = new Date();
+  var tz    = Session.getScriptTimeZone();
+  sheet.appendRow([id, now, p.date, p.subject || '', p.classes || '', p.description || '', p.teacher || '']);
+  return {
+    id:          id,
+    timestamp:   Utilities.formatDate(now, tz, 'yyyy-MM-dd HH:mm'),
+    date:        p.date        || '',
+    subject:     p.subject     || '',
+    classes:     p.classes     || '',
+    description: p.description || '',
+    notes:       p.description || '',
+    teacher:     p.teacher     || ''
+  };
+}
+
+function updateEntry(p) {
+  var sheet = getNewSheet();
+  var data  = sheet.getDataRange().getValues();
+  var now   = new Date();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(p.id)) {
+      // Columns B–G (1-indexed cols 2–7), row i+1
+      sheet.getRange(i + 1, 2, 1, 6).setValues([[
+        now,
+        p.date        || '',
+        p.subject     || '',
+        p.classes     || '',
+        p.description || '',
+        p.teacher     || ''
+      ]]);
+      return { success: true };
+    }
+  }
+  return { error: 'Oppføring ikke funnet' };
+}
+
+function deleteEntry(id) {
+  var sheet = getNewSheet();
+  var data  = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(id)) {
+      sheet.deleteRow(i + 1);
+      return { success: true };
+    }
+  }
+  return { error: 'Oppføring ikke funnet' };
+}
+
+// =============================================================
+// UTILITIES
+// =============================================================
+
+function isoDate(date) {
+  if (!(date instanceof Date) || isNaN(date)) return '';
+  return Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
+function respond(data) {
+  return ContentService
+    .createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
+}

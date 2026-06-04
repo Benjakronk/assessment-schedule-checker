@@ -270,7 +270,11 @@ async function fetchTeacherData({ background = false } = {}) {
 
   try {
     const token = sessionStorage.getItem('vk_token');
-    const res   = await fetch(`${SCRIPT_URL}?action=all&token=${encodeURIComponent(token)}`);
+    const res   = await fetch(SCRIPT_URL, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    new URLSearchParams({ action: 'all', token })
+    });
     const data  = await res.json();
 
     if (data.error === 'Unauthorized') { handleLogout(); return; }

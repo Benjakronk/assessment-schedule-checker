@@ -321,13 +321,10 @@ function render() {
   const endInput   = document.getElementById('endDate').value;
   if (!startInput || !endInput) return;
 
-  const startDate = new Date(startInput);
-  const endDate   = new Date(endInput);
-  endDate.setHours(23, 59, 59);
-
+  // Compare ISO date strings directly (both are 'yyyy-mm-dd'); avoids the
+  // UTC-vs-local skew of parsing them into Date objects. Range is inclusive.
   const filtered = allData.filter(item => {
-    const d = new Date(item.date);
-    if (d < startDate || d > endDate) return false;
+    if (item.date < startInput || item.date > endInput) return false;
     if (selectedClasses.length > 0) {
       const entryClasses = item.classes.toUpperCase().replace(/,/g, ' ').split(/\s+/).filter(Boolean);
       if (!selectedClasses.some(c => entryClasses.includes(c))) return false;
@@ -335,7 +332,7 @@ function render() {
     return true;
   });
 
-  renderCalendar(filtered, startDate, endDate);
+  renderCalendar(filtered, new Date(startInput), new Date(endInput));
 }
 
 function renderCalendar(data, startDate, endDate) {

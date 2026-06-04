@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'vk-shell-v1';
+const CACHE = 'vk-shell-v2';
 const ASSETS = [
   './',
   'index.html',
